@@ -264,6 +264,11 @@
       "</svg>" +
       '<img class="image-visualizer-img" alt="">' +
       '<button type="button" class="image-visualizer-close" aria-label="Close visualizer">&times;</button>' +
+      '<button type="button" class="image-visualizer-switch-fractal" aria-label="Switch to fractal view">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" fill="#e3e3e3" fill-rule="evenodd">' +
+      '<path d="M12 3 L21 20 L3 20 Z M7.5 11.5 L16.5 11.5 L12 20 Z"/>' +
+      "</svg>" +
+      "</button>" +
       '<button type="button" class="image-visualizer-settings-toggle" aria-label="Visualizer settings">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" fill="none" ' +
       'stroke="#e3e3e3" stroke-width="2" stroke-linecap="round">' +
@@ -284,6 +289,15 @@
       "</div>";
     document.body.appendChild(el);
     el.querySelector(".image-visualizer-close").addEventListener("click", closeVisualizer);
+    // Read the current photo before closeVisualizer() runs -- it doesn't
+    // null out visualizerImgEl itself, but this keeps the order safe
+    // regardless (same defensive pattern as the fractal's own switch
+    // button below, which DOES get its source nulled on close).
+    el.querySelector(".image-visualizer-switch-fractal").addEventListener("click", () => {
+      const src = visualizerImgEl.src;
+      closeVisualizer();
+      openFractal(src);
+    });
     const settingsToggle = el.querySelector(".image-visualizer-settings-toggle");
     const panel = el.querySelector(".visualizer-controls");
     settingsToggle.addEventListener("click", () => panel.classList.toggle("is-open"));
@@ -387,7 +401,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vef7fc7d";
+  const FRACTAL_VERSION = "v76b422d";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -684,6 +698,11 @@
     el.innerHTML =
       '<canvas class="image-fractal-canvas"></canvas>' +
       '<button type="button" class="image-fractal-close" aria-label="Close fractal view">&times;</button>' +
+      '<button type="button" class="image-fractal-switch-visualizer" aria-label="Switch to visualizer">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" height="22px" viewBox="0 -960 960 960" width="22px" fill="#e3e3e3">' +
+      '<path d="M852-212 732-332l56-56 120 120-56 56ZM708-692l-56-56 120-120 56 56-120 120Zm-456 0L132-812l56-56 120 120-56 56ZM108-212l-56-56 120-120 56 56-120 120Zm246-75 126-76 126 77-33-144 111-96-146-13-58-136-58 135-146 13 111 97-33 143ZM233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Zm247-361Z"/>' +
+      "</svg>" +
+      "</button>" +
       '<button type="button" class="image-fractal-settings-toggle" aria-label="Fractal settings">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" fill="none" ' +
       'stroke="#e3e3e3" stroke-width="2" stroke-linecap="round">' +
@@ -1009,6 +1028,15 @@
     wireLiveAudioControls(panel);
 
     el.querySelector(".image-fractal-close").addEventListener("click", closeFractal);
+    // activeCurrentImageSrc (kept in sync by the active session, see
+    // startFractalSession/frame() below) must be read BEFORE
+    // closeFractal() runs -- that function nulls it out as part of its
+    // own teardown.
+    el.querySelector(".image-fractal-switch-visualizer").addEventListener("click", () => {
+      const src = activeCurrentImageSrc;
+      closeFractal();
+      if (src) openVisualizer(src);
+    });
 
     const canvas = el.querySelector(".image-fractal-canvas");
     const glOptions = { preserveDrawingBuffer: true };

@@ -69,6 +69,34 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Sits directly left of the close button (44px + 12px gap, matching the
+   settings-gear/camera-roll-toggle gap convention elsewhere in this
+   file) -- switches to the fractal view on the same photo without
+   leaving fullscreen. */
+.image-visualizer-switch-fractal {
+  position: absolute;
+  top: 20px;
+  right: 76px;
+  z-index: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-visualizer-switch-fractal:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* Same 44x44 circle-button + slide-up-glass-sheet language as the
    fractal's own settings gear/.fractal-controls (see below) -- copied
    rather than shared, matching this file's existing convention of
@@ -172,6 +200,33 @@
 }
 
 .image-fractal-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Sits directly left of the close button, mirroring the visualizer's
+   own .image-visualizer-switch-fractal -- switches to the visualizer on
+   the same photo without leaving fullscreen. */
+.image-fractal-switch-visualizer {
+  position: absolute;
+  top: 20px;
+  right: 76px;
+  z-index: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-fractal-switch-visualizer:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
