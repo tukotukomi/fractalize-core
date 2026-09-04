@@ -1,0 +1,609 @@
+/* Fractalize Core: styles for the WebGL fractal viewer, the "visualize to
+   music" noise-warp view, and the live-audio settings UI they share.
+   Extracted from styles.css so this file can move into its own repo
+   (fractalize-core) as a self-contained unit -- see fractalize-core.js for
+   the matching extraction and the window.FractalizeCore API both files
+   expose to a host page. */
+
+/* Applied to <html> while either overlay below is open (see lockScroll/
+   unlockScrollIfNeeded in fractalize-core.js) -- the engine owns its own
+   scroll lock rather than depending on a host page's own "modal open"
+   class, since it needs to work standalone (no lightbox, no host page
+   awareness required). */
+.fractalize-scroll-lock {
+  overflow: hidden;
+}
+
+/* Fullscreen, cover-fit "visualize to music" view -- sits above a host
+   page's own modals (see the z-index below) so it's reachable from
+   within one. See the file-level comment in fractalize-core.js above
+   openVisualizer() for what the warp is (and isn't) actually driven by. */
+.image-visualizer {
+  position: fixed;
+  inset: 0;
+  z-index: 3100;
+  background: #000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.image-visualizer.is-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.3s ease, visibility 0s linear 0s;
+}
+
+.image-visualizer-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Fills the viewport edge-to-edge, cropping as needed rather than
+     stretching (the "not stretching the image" requirement). */
+  object-fit: cover;
+}
+
+.image-visualizer-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-visualizer-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Same 44x44 circle-button + slide-up-glass-sheet language as the
+   fractal's own settings gear/.fractal-controls (see below) -- copied
+   rather than shared, matching this file's existing convention of
+   keeping each surface's own classes separate even where the visual
+   pattern is identical. Holds just the "Live audio input" row (see
+   wireLiveAudioControls in fractalize-core.js), reused verbatim from the
+   fractal's markup since it's the exact same control, just living in a
+   different overlay. */
+.image-visualizer-settings-toggle {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-visualizer-settings-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.visualizer-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 75vh;
+  overflow-y: auto;
+  background: rgba(20, 20, 20, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+.visualizer-controls.is-open {
+  transform: translateY(0);
+}
+
+/* Fullscreen WebGL "Mandelbrot zoom" view -- same shell pattern as
+   .image-visualizer above (fixed, fades in/out, sits at the same
+   z-index tier), but its content is a <canvas> instead of an <img>+SVG
+   filter. See the file-level comment in fractalize-core.js above
+   openFractal() for what's actually being rendered. */
+.image-fractal {
+  position: fixed;
+  inset: 0;
+  z-index: 3100;
+  background: #000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.image-fractal.is-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.3s ease, visibility 0s linear 0s;
+}
+
+.image-fractal-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.image-fractal-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-fractal-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.image-fractal-settings-toggle {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-fractal-settings-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* A small, semi-transparent settings sheet -- deliberately minimal (one
+   toggle for now) after the last version grew a slider for every
+   tunable variable and made bad combinations easy to reach. Slides up
+   from the bottom edge of .image-fractal rather than fading, so it
+   reads as a physical sheet being pulled into view. */
+.fractal-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 75vh;
+  overflow-y: auto;
+  /* Lower blur radius + slightly higher opacity than the original
+     20px/0.65 -- backdrop-filter has to be recomputed every single
+     frame while the fractal keeps animating underneath (it can't be
+     cached the way a blur over static content can), so a smaller
+     kernel meaningfully cuts a real, continuous GPU cost; the higher
+     opacity keeps the glass reading just as legible with less blur
+     doing the work. */
+  background: rgba(20, 20, 20, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+.fractal-controls.is-open {
+  transform: translateY(0);
+}
+
+.fractal-controls-row {
+  margin-bottom: 18px;
+}
+
+.fractal-controls-row label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 8px;
+}
+
+.fractal-controls-value {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.fractal-controls-row input[type="range"] {
+  width: 100%;
+  accent-color: #fff;
+}
+
+.fractal-controls-toggle-row {
+  margin-bottom: 18px;
+}
+
+.fractal-controls-toggle-row label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.fractal-controls-toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.fractal-controls-version {
+  text-align: right;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.35);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
+}
+
+.fractal-controls-audio-device label {
+  display: block;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 8px;
+}
+
+.fractal-controls-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+}
+
+/* The <select>'s own closed-state text stays white (readable against
+   its own translucent-dark background above), but its dropdown list of
+   <option>s renders using the browser's native popup chrome -- almost
+   always a plain white/light background regardless of the select's own
+   styling -- so white option text was invisible until a hover state
+   (the browser's own highlight color) happened to add enough contrast.
+   Pinning both colors on the options themselves fixes this regardless
+   of the native popup's actual background. */
+.fractal-controls-select option {
+  color: #1a1a1a;
+  background: #fff;
+}
+
+.fractal-controls-audio-status {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Camera roll: same 44x44 circle-button language as the settings gear,
+   positioned 44px + 12px gap to its right so the two sit side by side. */
+.image-fractal-cameraroll-toggle {
+  position: absolute;
+  top: 20px;
+  left: 76px;
+  z-index: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-fractal-cameraroll-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Same slide-up glass sheet as .fractal-controls -- a second, mutually
+   exclusive bottom sheet (see buildFractal's toggle wiring) rather than
+   a second visual language, so the two panels read as one family. */
+.fractal-cameraroll {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 75vh;
+  overflow-y: auto;
+  /* Lower blur radius + slightly higher opacity than the original
+     20px/0.65 -- backdrop-filter has to be recomputed every single
+     frame while the fractal keeps animating underneath (it can't be
+     cached the way a blur over static content can), so a smaller
+     kernel meaningfully cuts a real, continuous GPU cost; the higher
+     opacity keeps the glass reading just as legible with less blur
+     doing the work. */
+  background: rgba(20, 20, 20, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+.fractal-cameraroll.is-open {
+  transform: translateY(0);
+}
+
+.fractal-cameraroll-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.fractal-cameraroll-shuffle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.fractal-cameraroll-shuffle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+/* "Modern, clean, but unique" -- a row of rounded pills rather than a
+   plain range slider, so the shuffle timer reads as a distinct control
+   from the sliders in the settings panel rather than one more of them. */
+.fractal-shuffle-timer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fractal-shuffle-pill {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.78rem;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.fractal-shuffle-pill:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fractal-shuffle-pill.is-active {
+  background: #fff;
+  color: #111;
+  border-color: #fff;
+}
+
+/* Randomizer (settings panel): exact same checkbox+timer-row style as
+   the camera roll's "Enable shuffle" above, including the border-bottom
+   separator -- copied rather than shared, matching this file's existing
+   convention of keeping each panel's own classes separate even where
+   the visual pattern is identical (see .fractal-controls-* vs.
+   .fractal-cameraroll-* throughout). */
+.fractal-controls-randomizer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.fractal-controls-randomizer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.fractal-controls-randomizer-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.fractal-controls-randomizer-timer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fractal-controls-randomizer-pill {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.78rem;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.fractal-controls-randomizer-pill:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fractal-controls-randomizer-pill.is-active {
+  background: #fff;
+  color: #111;
+  border-color: #fff;
+}
+
+/* Deliberately NOT another pill -- always-filled and bold rather than
+   outline-until-selected, so it reads as an action to take rather than
+   one more interval choice among the pills it sits beside. */
+.fractal-controls-randomize-now {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.fractal-controls-randomize-now:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.fractal-controls-randomize-now:active {
+  transform: scale(0.96);
+}
+
+.fractal-cameraroll-section {
+  margin-bottom: 20px;
+}
+
+.fractal-cameraroll-section-label {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.fractal-cameraroll-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+}
+
+.fractal-cameraroll-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.fractal-cameraroll-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fractal-cameraroll-thumb.is-queued {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.fractal-cameraroll-thumb.is-playing {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #fff;
+}
+
+.fractal-cameraroll-thumb-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 4px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+}
+
+.fractal-cameraroll-action {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  color: #111;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.fractal-cameraroll-action:hover {
+  background: #fff;
+}
