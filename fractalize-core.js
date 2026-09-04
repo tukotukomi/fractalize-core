@@ -231,6 +231,17 @@
       return;
     }
     const img = new Image();
+    // Requests the image in CORS mode -- required for a cross-origin
+    // source (e.g. fractalize.studio loading a photo from
+    // tuckermills.com) to ever be readable via canvas/getImageData
+    // (buildPixelSampler/downscaleForTexture below both need this).
+    // Without it, even a server that sends a permissive
+    // Access-Control-Allow-Origin header still leaves the resulting
+    // <img> "tainted" for pixel reads, because the browser only honors
+    // that header for requests it actually made in CORS mode. A no-op
+    // for same-origin sources (this host's own photos) and for blob:/
+    // data: URLs (uploads) -- safe to set unconditionally.
+    img.crossOrigin = "anonymous";
     img.src = srcOrImgEl;
     const ready = img.decode
       ? img.decode().catch(() => {})
@@ -376,7 +387,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vac21f9d";
+  const FRACTAL_VERSION = "vef7fc7d";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -1497,6 +1508,9 @@
       switchLoadedImg = null;
       switchLoadedSampler = null;
       const img = new Image();
+      // See resolveImageSource's own comment on why this is needed for
+      // a cross-origin source to ever be readable via canvas below.
+      img.crossOrigin = "anonymous";
       img.src = newSrc;
       const ready = img.decode
         ? img.decode().catch(() => {})
