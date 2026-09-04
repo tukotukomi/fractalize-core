@@ -40,10 +40,15 @@
   // The sole source of computePulse's reactivity below -- opt-in only,
   // via a "Live audio input" checkbox (see wireLiveAudioControls, shared
   // by both the fractal's and the noise-warp visualizer's settings
-  // panels), since it needs microphone permission. Deliberately NOT
-  // persisted to fractalSettings/localStorage: this always starts back
-  // at "off" on every fresh open of either view, never a silent
-  // re-prompt. A visitor with a loopback/virtual-cable input device
+  // panels), since it needs microphone permission. The ON/OFF state
+  // itself is deliberately NOT persisted: this always starts back at
+  // "off" on every fresh open of either view, never a silent re-prompt.
+  // The chosen INPUT DEVICE is persisted (LIVE_AUDIO_DEVICE_KEY below),
+  // so checking the box again later defaults to whichever device was
+  // picked last time instead of the browser's default -- a separate,
+  // harmless concern from auto-enabling, since it still requires an
+  // explicit click to actually request the microphone. A visitor with a
+  // loopback/virtual-cable input device
   // selected (Stereo Mix, VB-Cable, BlackHole, etc.) can feed their
   // actual system/Bandcamp playback audio in this way -- the browser has
   // no way to tell "real microphone" apart from "virtual cable
@@ -56,6 +61,24 @@
   let liveAudioAnalyser = null;
   let liveAudioDataArray = null;
   let liveAudioStream = null;
+
+  const LIVE_AUDIO_DEVICE_KEY = "tuckerMillsLiveAudioDeviceId";
+
+  function loadPreferredAudioDeviceId() {
+    try {
+      return localStorage.getItem(LIVE_AUDIO_DEVICE_KEY) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function savePreferredAudioDeviceId(deviceId) {
+    try {
+      if (deviceId) localStorage.setItem(LIVE_AUDIO_DEVICE_KEY, deviceId);
+    } catch (e) {
+      // Private browsing / storage disabled -- selection just won't persist.
+    }
+  }
 
   function readLiveAudioPulse() {
     if (!liveAudioAnalyser) return null;
@@ -99,6 +122,22 @@
     return stream;
   }
 
+  // Tries the given device first; a deviceId left over from a previous
+  // visit can go stale (unplugged, renamed) and getUserMedia rejects
+  // that specific case with OverconstrainedError -- fall back to the
+  // browser's default device instead of surfacing an error for what's
+  // really just a stale preference.
+  async function enableLiveAudioWithFallback(deviceId, onDisconnect) {
+    try {
+      return await enableLiveAudio(deviceId, onDisconnect);
+    } catch (err) {
+      if (deviceId && err && err.name === "OverconstrainedError") {
+        return enableLiveAudio(null, onDisconnect);
+      }
+      throw err;
+    }
+  }
+
   function disableLiveAudio() {
     stopLiveAudioStream();
     liveAudioAnalyser = null;
@@ -114,9 +153,11 @@
   // reactivity for either view now (see the comment above
   // liveAudioContext), so both need it, and writing/fixing this device-
   // enumeration/disconnect/mid-session-switch logic in one place beats
-  // maintaining two copies. Deliberately kept out of fractalSettings/
-  // localStorage (same comment) -- always starts unchecked, in either
-  // panel, on every fresh open.
+  // maintaining two copies. The checkbox itself is deliberately kept out
+  // of fractalSettings/localStorage (same comment) -- always starts
+  // unchecked, in either panel, on every fresh open -- but the picked
+  // device IS remembered (LIVE_AUDIO_DEVICE_KEY), so checking it again
+  // later defaults back to that device instead of the browser's own.
   function wireLiveAudioControls(panel) {
     const liveAudioToggle = panel.querySelector('[data-toggle="liveAudio"]');
     const audioDeviceRow = panel.querySelector(".fractal-controls-audio-device");
@@ -134,14 +175,19 @@
             opt.textContent = d.label || "Microphone " + (i + 1);
             audioDeviceSelect.appendChild(opt);
           });
-        // enableLiveAudio(null) (the checkbox's first-ever grant) picks
-        // whatever the browser considers its default device, which isn't
-        // necessarily this list's first entry -- read back which track
-        // actually got used and select that option to match.
+        // enableLiveAudio(null) (the checkbox's first-ever grant, or a
+        // fallback from a stale saved device) picks whatever the browser
+        // considers its default device, which isn't necessarily this
+        // list's first entry -- read back which track actually got used,
+        // select that option to match, and remember it as the preference
+        // for next time.
         if (liveAudioStream) {
           const track = liveAudioStream.getAudioTracks()[0];
           const settings = track && track.getSettings && track.getSettings();
-          if (settings && settings.deviceId) audioDeviceSelect.value = settings.deviceId;
+          if (settings && settings.deviceId) {
+            audioDeviceSelect.value = settings.deviceId;
+            savePreferredAudioDeviceId(settings.deviceId);
+          }
         }
       });
     }
@@ -161,7 +207,8 @@
       if (e.target.checked) {
         audioDeviceRow.hidden = false;
         audioStatusEl.textContent = "Requesting microphone access…";
-        enableLiveAudio(audioDeviceSelect.value || null, handleAudioDisconnect)
+        const preferredId = audioDeviceSelect.value || loadPreferredAudioDeviceId();
+        enableLiveAudioWithFallback(preferredId, handleAudioDisconnect)
           .then(populateAudioDeviceOptions)
           .then(() => {
             const label = audioDeviceSelect.selectedOptions[0];
@@ -183,6 +230,7 @@
     audioDeviceSelect.addEventListener("change", () => {
       if (!liveAudioToggle.checked) return;
       audioStatusEl.textContent = "Switching input…";
+      savePreferredAudioDeviceId(audioDeviceSelect.value);
       enableLiveAudio(audioDeviceSelect.value, handleAudioDisconnect)
         .then(() => {
           audioStatusEl.textContent = "Listening on " + audioDeviceSelect.selectedOptions[0].textContent + ".";
@@ -401,7 +449,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v76b422d";
+  const FRACTAL_VERSION = "v727f17d";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
