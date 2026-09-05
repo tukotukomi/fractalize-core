@@ -436,6 +436,21 @@
   transform: translateY(0);
 }
 
+/* Low performance mode (see FRACTAL_DEFAULTS/buildFractal in
+   fractalize-core.js): backdrop-filter blur has to be recomputed every
+   single frame over the continuously-animating canvas beneath it (it
+   can't be cached the way a blur over static content can) -- dropping
+   it entirely while either panel is open is one of the cheapest real
+   wins available, at the cost of the panel reading as a flat dark sheet
+   instead of frosted glass. Slightly higher opacity than the normal
+   0.78 keeps it just as legible without the blur doing any of the work. */
+.image-fractal.low-performance .fractal-controls,
+.image-fractal.low-performance .fractal-cameraroll {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(20, 20, 20, 0.92);
+}
+
 .fractal-cameraroll-header {
   display: flex;
   flex-wrap: wrap;

@@ -452,7 +452,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v36564c5";
+  const FRACTAL_VERSION = "v552653f";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -508,6 +508,18 @@
     // buildFractal.
     randomizerEnabled: false,
     randomizerTimerSec: 30,
+    // Trades visual thoroughness for raw frame rate on slower machines:
+    // caps canvas resolution to 1x device-pixel-ratio (see resize()),
+    // halves the shader's per-pixel iteration budget (see maxIter in
+    // frame()), searches fewer/cheaper candidates in injectFromImage
+    // (the biggest single cost -- a synchronous CPU scoring loop that
+    // runs on every cycle wrap, RANDOMIZE NOW, and Fractal-shape drag),
+    // and drops the settings/camera-roll panels' backdrop-filter blur
+    // (continuously recomputed over an animating full-bleed canvas --
+    // see resize()'s own comment on why that's expensive). Off by
+    // default since it's a real, visible quality tradeoff, not a free
+    // win.
+    lowPerformanceMode: false,
   };
   const FRACTAL_SETTINGS_KEY = "tuckerMillsFractalSettings";
   // Pill choices for the camera roll's shuffle timer -- deliberately not
@@ -707,6 +719,12 @@
   // outlives any single open) can start a live transition to a
   // different photo. Null whenever the fractal view is closed.
   let activeImageSwitch = null;
+  // Same pattern again, for the active session's own resize() -- so the
+  // "Low performance mode" checkbox (see FRACTAL_DEFAULTS) can force an
+  // immediate re-resolution the moment it's toggled, rather than waiting
+  // for an actual window resize or a settings-panel open/close to
+  // happen to fire it next. Null whenever the fractal view is closed.
+  let activeResize = null;
   // Mirrors whichever photo the active session is currently showing --
   // read by the camera roll panel for its "now playing" highlight and
   // by the shuffle timer to avoid picking the same photo twice in a row.
@@ -779,6 +797,9 @@
       '<div class="fractal-cameraroll-grid" data-cameraroll-grid></div>' +
       "</div>" +
       '<div class="fractal-controls">' +
+      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
+      '<label><input type="checkbox" data-toggle="lowPerformanceMode"> Low performance mode</label>' +
+      "</div>" +
       '<div class="fractal-controls-randomizer">' +
       '<label class="fractal-controls-randomizer-toggle"><input type="checkbox" data-toggle="randomizerEnabled"> Randomizer</label>' +
       '<div class="fractal-controls-randomizer-timer" data-randomizer-timer role="group" aria-label="Randomizer timer">' +
@@ -989,8 +1010,18 @@
     // (not the full cycle-length blend an ordinary wrap uses) makes the
     // slider feel directly responsive instead of leaving a stale/
     // possibly-flat view on screen until the next scheduled cycle wrap.
+    // Debounced rather than firing on every single "input" event: a drag
+    // fires dozens of those in a couple hundred milliseconds, and
+    // injectFromImage's scoring loop is the single most expensive thing
+    // in this file (see MAX_ATTEMPTS above) -- running it dozens of
+    // times over one drag, not once after it settles, was the actual
+    // cause of a slider that felt like it was fighting the frame rate.
+    let fractalPowerReinjectTimer = null;
     panel.querySelector('[data-setting="fractalPower"]').addEventListener("input", () => {
-      if (activeReinject) activeReinject(performance.now(), 1200);
+      clearTimeout(fractalPowerReinjectTimer);
+      fractalPowerReinjectTimer = setTimeout(() => {
+        if (activeReinject) activeReinject(performance.now(), 1200);
+      }, 150);
     });
 
     // Randomizer: periodically (or on demand, via RANDOMIZE NOW) rerolls
@@ -1067,13 +1098,28 @@
 
     panel.querySelector("[data-randomize-now]").addEventListener("click", randomizeFractalSettings);
 
-    ["avoidEmptySpaces", "growthEnabled", "ogMode"].forEach((key) => {
+    ["avoidEmptySpaces", "growthEnabled", "ogMode", "lowPerformanceMode"].forEach((key) => {
       const toggle = panel.querySelector('[data-toggle="' + key + '"]');
       toggle.checked = fractalSettings[key];
       toggle.addEventListener("change", (e) => {
         fractalSettings[key] = e.target.checked;
         saveFractalSettings(fractalSettings);
       });
+    });
+
+    // Low performance mode has two extra effects beyond the plain
+    // setting flip above -- a CSS hook (see fractalize-core.css) that
+    // drops the panels' backdrop-filter blur, and an immediate re-
+    // resolution via activeResize (resize() itself already reads this
+    // setting, see openFractal, but nothing else re-triggers it the
+    // moment the checkbox changes -- no resize event, no panel-open
+    // transition). Applied once up front too, so a fractal opened with
+    // this already turned on (from a previous visit) starts correct
+    // rather than waiting for the first resize/panel toggle.
+    el.classList.toggle("low-performance", fractalSettings.lowPerformanceMode);
+    panel.querySelector('[data-toggle="lowPerformanceMode"]').addEventListener("change", (e) => {
+      el.classList.toggle("low-performance", e.target.checked);
+      if (activeResize) activeResize();
     });
 
     wireLiveAudioControls(panel);
@@ -1235,6 +1281,16 @@
   // detailed at one zoom can still open (or drift) into an empty field
   // of color at another, which single-zoom scoring couldn't catch.
   const SCORE_ZOOMS = [1, 2, 3.5, 5.5, 8, 11, 15];
+  // Low performance mode's own, much cheaper stand-in for the full
+  // SCORE_ZOOMS sweep above -- 3 zooms spanning the same low/mid/high
+  // range instead of 7, used only by injectFromImage's own scoring
+  // (never the watchdog, which already passes its own single-zoom array
+  // regardless of this setting). Less thorough validation against a
+  // candidate turning out empty at some *other* zoom than the ones
+  // checked, but MIN_SCORE/MAX_ATTEMPTS below still apply, so this
+  // trades some of that safety margin for a meaningfully cheaper search,
+  // not a different search entirely.
+  const SCORE_ZOOMS_LOW = [1, 5.5, 15];
   // zooms defaults to the full validated range above; the flatness
   // watchdog in frame() instead passes a single-element array (whatever
   // zoom is actually on screen right now) for a much cheaper live check.
@@ -1409,8 +1465,13 @@
       // remains as a comfortable safety margin now that a uniformly
       // random angle can actually reach every window -- cost stays
       // negligible either way, this only runs a few times per minute,
-      // not per frame.
-      const MAX_ATTEMPTS = 150;
+      // not per frame. Low performance mode halves it (and, below,
+      // scores against 3 zooms instead of 7) -- this loop is the single
+      // biggest CPU cost in the whole file, so a slow machine hitting
+      // its worst case (never clearing MIN_SCORE) is exactly what a
+      // choppy cycle-wrap/RANDOMIZE NOW/Fractal-shape-drag looks like.
+      const MAX_ATTEMPTS = fractalSettings.lowPerformanceMode ? 75 : 150;
+      const scoreZooms = fractalSettings.lowPerformanceMode ? SCORE_ZOOMS_LOW : SCORE_ZOOMS;
       // OG Fractal always scores/renders at power 2, ignoring the
       // "Fractal shape" slider -- matches its own "exact original
       // behavior" invariant, same as every other Smooth-mode-only
@@ -1492,7 +1553,7 @@
         // orbit of the critical point z=0 after one step), so the zoom
         // target rides along with c instead of staying put.
         const center = { x: c.x * 0.5, y: c.y * 0.5 };
-        const score = scoreJuliaView(c.x, c.y, center.x, center.y, scoringPower, null, aspectRatio);
+        const score = scoreJuliaView(c.x, c.y, center.x, center.y, scoringPower, scoreZooms, aspectRatio);
         if (!best || score > best.score) best = { c, center, score };
         if (best.score >= MIN_SCORE) break;
       }
@@ -1623,13 +1684,19 @@
     // real perf win with no noticeable visual cost while it's active.
     function resize() {
       const panelOpen = fractalEl.classList.contains("panel-open");
-      const dpr = panelOpen ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      // Low performance mode always renders at 1x, same as the
+      // panel-open downscale above and for the same reason -- fewer
+      // pixels for the shader to fill every frame, which on a high-DPR
+      // display (2x = 4x the pixels) is one of the largest single levers
+      // on frame rate available here.
+      const dpr = panelOpen || fractalSettings.lowPerformanceMode ? 1 : Math.min(window.devicePixelRatio || 1, 2);
       fractalCanvasEl.width = window.innerWidth * dpr;
       fractalCanvasEl.height = window.innerHeight * dpr;
       gl.viewport(0, 0, fractalCanvasEl.width, fractalCanvasEl.height);
     }
     resize();
     window.addEventListener("resize", resize);
+    activeResize = resize;
     // Tracked so frame() only calls resize() on an actual open/close
     // transition (a DOM read + GL resize every single frame would waste
     // back the very perf this exists to save), not every frame.
@@ -1655,7 +1722,10 @@
       const DIVE_GRACE_MS = ZOOM_DIVE_RAMP_MS + 500; // grace period after the dive to see if it resolved things, before winding down
       const WIND_DOWN_MS = 1400; // duration of the ease-back-to-1x before skipping ahead to the next cycle
       let zoom;
-      let maxIter = 120;
+      // Halved under low performance mode -- this is a per-pixel,
+      // per-frame cost across the whole canvas, so it's one of the most
+      // direct levers on frame rate a slower GPU actually has.
+      let maxIter = fractalSettings.lowPerformanceMode ? 60 : 120;
       if (fractalSettings.ogMode) {
         // Exactly the original behavior: one 6s cycle, zoom climbs
         // 1 -> 7 across the whole thing, then wraps straight back --
@@ -1708,7 +1778,9 @@
         const diveExponent = 1.5 + pulse * (fractalSettings.musicReactivityPct / 100) * 0.6;
         zoom = 1 + Math.pow(morphPhase, diveExponent) * (fractalSettings.zoomDepth - 1);
 
-        if (fractalSettings.growthEnabled) maxIter = 100 + pulse * 50;
+        if (fractalSettings.growthEnabled) {
+          maxIter = fractalSettings.lowPerformanceMode ? 50 + pulse * 25 : 100 + pulse * 50;
+        }
       }
       // Escape-dive zoom boost, applied every frame (not just on the
       // periodic check below) so it renders as one continuous smooth
@@ -1937,6 +2009,7 @@
     unlockScrollIfNeeded();
     activeReinject = null;
     activeImageSwitch = null;
+    activeResize = null;
     activeCurrentImageSrc = null;
     if (cameraRollStopShuffleTimer) cameraRollStopShuffleTimer();
     if (settingsPanelStopRandomizerTimer) settingsPanelStopRandomizerTimer();
