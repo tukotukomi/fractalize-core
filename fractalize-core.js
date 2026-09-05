@@ -368,6 +368,7 @@
     visualizerEl.classList.add("is-open");
     if (visualizerEl.requestFullscreen) visualizerEl.requestFullscreen().catch(() => {});
     lockScroll();
+    resetIdleHide();
 
     // Re-seeded on open and on every cycle reset below, so the noise
     // pattern -- and so the exact shape of the warp -- differs each time,
@@ -423,6 +424,8 @@
     if (audioDeviceRow) audioDeviceRow.hidden = true;
     const audioStatusEl = visualizerEl.querySelector("[data-audio-status]");
     if (audioStatusEl) audioStatusEl.textContent = "";
+    visualizerEl.classList.remove("chrome-hidden");
+    clearIdleHide();
   }
 
   // "Mandelbrot zoom": a fullscreen WebGL view of a photo as a Julia set
@@ -449,7 +452,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v727f17d";
+  const FRACTAL_VERSION = "v36564c5";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -1270,6 +1273,7 @@
     fractalEl.classList.add("is-open");
     if (fractalEl.requestFullscreen) fractalEl.requestFullscreen().catch(() => {});
     lockScroll();
+    resetIdleHide();
 
     if (!fractalGl) {
       // WebGL unavailable (very old/restricted browser) -- nothing to
@@ -1947,7 +1951,70 @@
     if (audioDeviceRow) audioDeviceRow.hidden = true;
     const audioStatusEl = fractalEl.querySelector("[data-audio-status]");
     if (audioStatusEl) audioStatusEl.textContent = "";
+    fractalEl.classList.remove("chrome-hidden");
+    clearIdleHide();
   }
+
+  // Idle-hide: fades out whichever overlay's own top-level chrome
+  // buttons (and hides the OS cursor -- see fractalize-core.css) after
+  // IDLE_HIDE_MS of no mouse/keyboard activity, for leaving either view
+  // running fullscreen on an idle second monitor without stray buttons
+  // sitting over the image. Paused entirely while a settings/camera-roll
+  // panel is open, checked at fire time rather than schedule time, so
+  // opening a panel after the timer's already ticking still holds it
+  // off. A single set of always-attached, state-guarded document
+  // listeners (same pattern as the fullscreenchange/keydown listeners
+  // below) rather than per-open wiring, since only one overlay can be
+  // open at a time anyway.
+  const IDLE_HIDE_MS = 10000;
+  let idleHideTimer = null;
+
+  function activeOverlayEl() {
+    if (isFractalOpen()) return fractalEl;
+    if (isVisualizerOpen()) return visualizerEl;
+    return null;
+  }
+
+  function isActiveOverlayPanelOpen() {
+    if (isFractalOpen()) return fractalEl.classList.contains("panel-open");
+    if (isVisualizerOpen()) {
+      const panel = visualizerEl.querySelector(".visualizer-controls");
+      return !!panel && panel.classList.contains("is-open");
+    }
+    return false;
+  }
+
+  function clearIdleHide() {
+    clearTimeout(idleHideTimer);
+    idleHideTimer = null;
+  }
+
+  function scheduleIdleHide() {
+    clearTimeout(idleHideTimer);
+    idleHideTimer = setTimeout(() => {
+      const el = activeOverlayEl();
+      if (!el || isActiveOverlayPanelOpen()) return;
+      el.classList.add("chrome-hidden");
+    }, IDLE_HIDE_MS);
+  }
+
+  // Called on open (chrome starts visible, timer starts fresh) and on
+  // every activity event below (chrome comes back, timer restarts).
+  function resetIdleHide() {
+    const el = activeOverlayEl();
+    if (el) el.classList.remove("chrome-hidden");
+    scheduleIdleHide();
+  }
+
+  ["mousemove", "mousedown", "touchstart", "keydown"].forEach((type) => {
+    document.addEventListener(
+      type,
+      () => {
+        if (activeOverlayEl()) resetIdleHide();
+      },
+      type === "touchstart" ? { passive: true } : false
+    );
+  });
 
   // Covers the case where the visitor exits fullscreen through the
   // browser's own UI/shortcut rather than the close button here. Fully

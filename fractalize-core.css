@@ -662,3 +662,36 @@
 .fractal-cameraroll-action:hover {
   background: #fff;
 }
+
+/* Idle-hide: after IDLE_HIDE_MS of no mouse/keyboard activity (see
+   fractalize-core.js), whichever overlay is open gets this class --
+   fades out its own top-level chrome buttons (never an open settings/
+   camera-roll panel, which pauses the hide entirely) and hides the OS
+   cursor, so a photo left running fullscreen on an idle second monitor
+   shows nothing but itself. Any activity removes the class immediately;
+   only the hide itself fades. */
+.image-fractal.chrome-hidden,
+.image-visualizer.chrome-hidden {
+  cursor: none;
+}
+
+.image-fractal-close,
+.image-fractal-switch-visualizer,
+.image-fractal-settings-toggle,
+.image-fractal-cameraroll-toggle,
+.image-visualizer-close,
+.image-visualizer-switch-fractal,
+.image-visualizer-settings-toggle {
+  transition: background-color 0.2s ease, opacity 0.4s ease;
+}
+
+.image-fractal.chrome-hidden .image-fractal-close,
+.image-fractal.chrome-hidden .image-fractal-switch-visualizer,
+.image-fractal.chrome-hidden .image-fractal-settings-toggle,
+.image-fractal.chrome-hidden .image-fractal-cameraroll-toggle,
+.image-visualizer.chrome-hidden .image-visualizer-close,
+.image-visualizer.chrome-hidden .image-visualizer-switch-fractal,
+.image-visualizer.chrome-hidden .image-visualizer-settings-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
