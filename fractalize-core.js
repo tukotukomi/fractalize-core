@@ -31,6 +31,33 @@
   let visualizerDisplacementEl = null;
   let visualizerTurbulenceEl = null;
   let visualizerRAF = null;
+  // The visualizer's own tiny persisted settings -- separate from
+  // fractalSettings/FRACTAL_SETTINGS_KEY below since that object is only
+  // ever loaded when the fractal itself is opened at least once
+  // (buildFractal's own loadFractalSettings() call), and the visualizer
+  // needs to work standalone without assuming the fractal was ever
+  // touched. bumpZoomEnabled: whether the live-audio pulse drives the
+  // warp's displacement/zoom-scale/brightness at all (see
+  // VISUALIZER_DEFAULTS' own comment on why this needed to be a real
+  // setting) -- on by default, matching original behavior.
+  let visualizerSettings = null;
+  const VISUALIZER_DEFAULTS = { bumpZoomEnabled: true };
+  const VISUALIZER_SETTINGS_KEY = "tuckerMillsVisualizerSettings";
+  function loadVisualizerSettings() {
+    try {
+      const raw = localStorage.getItem(VISUALIZER_SETTINGS_KEY);
+      return Object.assign({}, VISUALIZER_DEFAULTS, raw ? JSON.parse(raw) : {});
+    } catch (e) {
+      return Object.assign({}, VISUALIZER_DEFAULTS);
+    }
+  }
+  function saveVisualizerSettings(settings) {
+    try {
+      localStorage.setItem(VISUALIZER_SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {
+      // Private browsing / storage disabled -- setting just won't persist.
+    }
+  }
   // How long one "descend into finer fractal detail, then reset" cycle
   // takes -- independent of and layered on top of the audio-driven pulse
   // below, so the two rhythms don't lock to each other. Runs regardless
@@ -327,6 +354,9 @@
       "</button>" +
       '<div class="visualizer-controls">' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
+      '<label><input type="checkbox" data-toggle="bumpZoomEnabled"> Bump zoom</label>' +
+      "</div>" +
+      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
       '<div class="fractal-controls-row fractal-controls-audio-device" hidden>' +
@@ -336,6 +366,13 @@
       "</div>" +
       "</div>";
     document.body.appendChild(el);
+    visualizerSettings = loadVisualizerSettings();
+    const bumpZoomToggle = el.querySelector('[data-toggle="bumpZoomEnabled"]');
+    bumpZoomToggle.checked = visualizerSettings.bumpZoomEnabled;
+    bumpZoomToggle.addEventListener("change", (e) => {
+      visualizerSettings.bumpZoomEnabled = e.target.checked;
+      saveVisualizerSettings(visualizerSettings);
+    });
     el.querySelector(".image-visualizer-close").addEventListener("click", closeVisualizer);
     // Read the current photo before closeVisualizer() runs -- it doesn't
     // null out visualizerImgEl itself, but this keeps the order safe
@@ -396,7 +433,15 @@
       visualizerTurbulenceEl.setAttribute("baseFrequency", `${freq.toFixed(4)} ${(freq * 1.5).toFixed(4)}`);
       visualizerTurbulenceEl.setAttribute("numOctaves", String(1 + Math.floor(cyclePhase * 4)));
 
-      const pulse = computePulse();
+      // "Bump zoom" toggle (see VISUALIZER_DEFAULTS): off means the warp's
+      // displacement/zoom-scale/brightness sit at their idle values below
+      // regardless of live audio, same as if the pulse were always 0 --
+      // the raw analyser reading has no smoothing of its own (unlike the
+      // fractal's own reactivity, whose effect is naturally damped by
+      // being just one input to a slow-moving exponent, see
+      // musicReactivityPct above), so this is the direct fix for anyone
+      // who finds that jitter distracting rather than lively.
+      const pulse = visualizerSettings.bumpZoomEnabled ? computePulse() : 0;
 
       visualizerDisplacementEl.setAttribute("scale", (pulse * 45).toFixed(1));
       visualizerImgEl.style.transform = `scale(${(1 + pulse * 0.06).toFixed(3)})`;
@@ -452,7 +497,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v552653f";
+  const FRACTAL_VERSION = "v40f646b";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -467,6 +512,14 @@
     // in an earlier revert and never came back. Off/0 is the accurate
     // "current behavior" default for both, not a guess.
     musicReactivityPct: 0,
+    // How much of each frame's smoothed pulse carries over into the
+    // next, vs. the raw analyser reading (see the smoothing math in
+    // frame() below) -- 0 reproduces the original un-smoothed behavior
+    // exactly. Defaulted on (not 0) since a visitor turning up "Music
+    // reactivity" for the first time is specifically looking for a
+    // pleasant wobble, not raw meter jitter; still fully adjustable back
+    // down to 0 for anyone who prefers the snappier original feel.
+    reactivitySmoothingPct: 30,
     growthEnabled: false,
     // 7x is the proven-safe ceiling this whole mode is built around
     // (see the "Smooth mode" comment above injectFromImage below) --
@@ -811,6 +864,8 @@
       "</div>" +
       '<div class="fractal-controls-row"><label>Music reactivity <span class="fractal-controls-value" data-value-for="musicReactivityPct"></span></label>' +
       '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
+      '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
+      '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
@@ -986,6 +1041,7 @@
     // behavior verbatim regardless of what these are set to.
     const FRACTAL_CONTROL_FORMATS = {
       musicReactivityPct: (v) => v + "%",
+      reactivitySmoothingPct: (v) => v + "%",
       fractalPower: (v) => v + "-fold",
       bgSaturationPct: (v) => v + "%",
       zoomDepth: (v) => v + "x",
@@ -1586,6 +1642,11 @@
     cFrom = cTarget;
     centerFrom = centerTarget;
     let lastCyclePhase = 0;
+    // Reactivity smoothing state (see reactivitySmoothingPct's own
+    // comment and the smoothing math in frame() below) -- starts at 0
+    // rather than whatever a previous session left off at, so a fresh
+    // open never opens mid-swing on a stale value.
+    let smoothedPulse = 0;
     // "Avoid empty spaces" watchdog state (Smooth mode only) -- see its
     // check in frame() below for why this exists alongside
     // MIN_SCORE-validated injection rather than instead of it.
@@ -1762,7 +1823,18 @@
         // keeps the blend path itself validated enough to make a long,
         // continuous drift viable again.
         const cycleDurationMs = fractalSettings.cycleDurationSec * 1000;
-        const pulse = computePulse();
+        // Reactivity smoothing: an exponential moving average over the
+        // raw analyser reading, same idea as a VU meter's ballistics --
+        // 0% retains none of the previous frame (identical to the
+        // original un-smoothed behavior), higher values blend in more of
+        // it each frame, turning an instant, jittery reading into a
+        // slower, steadier rise and fall. 0.95 as the retain ceiling
+        // (not 1.0) so even "100%" still tracks a sustained volume
+        // change within roughly a second rather than never actually
+        // catching up.
+        const retain = (fractalSettings.reactivitySmoothingPct / 100) * 0.95;
+        smoothedPulse += (computePulse() - smoothedPulse) * (1 - retain);
+        const pulse = smoothedPulse;
 
         const cyclePhase = ((now - startTime) % cycleDurationMs) / cycleDurationMs;
         if (cyclePhase < lastCyclePhase) injectFromImage(now, cycleDurationMs * 0.98);
