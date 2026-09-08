@@ -260,6 +260,71 @@
   // unchecked, in either panel, on every fresh open -- but the picked
   // device IS remembered (LIVE_AUDIO_DEVICE_KEY), so checking it again
   // later defaults back to that device instead of the browser's own.
+  // Enumerates audio-input devices into `select` and, if a stream is
+  // already live, selects whichever device it's actually using (and
+  // remembers it as the preference for next time) -- factored out of
+  // wireLiveAudioControls so syncLiveAudioPanel below can populate a
+  // panel's device list too, without needing that panel's own enable
+  // flow to have been the one that started the stream.
+  function populateAudioDeviceOptionsFor(select) {
+    return navigator.mediaDevices.enumerateDevices().then((devices) => {
+      select.textContent = "";
+      devices
+        .filter((d) => d.kind === "audioinput")
+        .forEach((d, i) => {
+          const opt = document.createElement("option");
+          opt.value = d.deviceId;
+          opt.textContent = d.label || "Microphone " + (i + 1);
+          select.appendChild(opt);
+        });
+      // enableLiveAudio(null) (the checkbox's first-ever grant, or a
+      // fallback from a stale saved device) picks whatever the browser
+      // considers its default device, which isn't necessarily this
+      // list's first entry -- read back which track actually got used,
+      // select that option to match, and remember it as the preference
+      // for next time.
+      if (liveAudioStream) {
+        const track = liveAudioStream.getAudioTracks()[0];
+        const settings = track && track.getSettings && track.getSettings();
+        if (settings && settings.deviceId) {
+          select.value = settings.deviceId;
+          savePreferredAudioDeviceId(settings.deviceId);
+        }
+      }
+    });
+  }
+
+  // Reflects the CURRENT shared live-audio state (on/off, which device)
+  // into one panel's own toggle/device-row/select/status -- called by
+  // openFractal/openVisualizer on every open, not just wireLiveAudioControls
+  // at build time, so a stream already started from a DIFFERENT panel
+  // (the fractal's, the visualizer's, or a host page's own setup card --
+  // see wireLiveAudioControls' own comment on there being up to three)
+  // shows correctly the moment this one opens, instead of looking off
+  // until its own checkbox is toggled even though the mic is already
+  // live. Only handles turning ON to match reality -- the off state is
+  // already every panel's own default and whatever disableLiveAudio
+  // already resets it to, so there's nothing to sync in that direction.
+  function syncLiveAudioPanel(panel) {
+    if (!liveAudioStream) return;
+    const toggle = panel.querySelector('[data-toggle="liveAudio"]');
+    if (!toggle) return;
+    toggle.checked = true;
+    const row = panel.querySelector(".fractal-controls-audio-device");
+    if (row) row.hidden = false;
+    const select = panel.querySelector("[data-audio-device]");
+    if (select) {
+      populateAudioDeviceOptionsFor(select).then(() => {
+        const status = panel.querySelector("[data-audio-status]");
+        if (status) {
+          const label = select.selectedOptions[0];
+          status.textContent = "Listening" + (label ? " on " + label.textContent : "") + ".";
+        }
+      });
+    }
+    startWaveformLoop();
+  }
+
   function wireLiveAudioControls(panel) {
     const liveAudioToggle = panel.querySelector('[data-toggle="liveAudio"]');
     const audioDeviceRow = panel.querySelector(".fractal-controls-audio-device");
@@ -267,31 +332,7 @@
     const audioStatusEl = panel.querySelector("[data-audio-status]");
 
     function populateAudioDeviceOptions() {
-      return navigator.mediaDevices.enumerateDevices().then((devices) => {
-        audioDeviceSelect.textContent = "";
-        devices
-          .filter((d) => d.kind === "audioinput")
-          .forEach((d, i) => {
-            const opt = document.createElement("option");
-            opt.value = d.deviceId;
-            opt.textContent = d.label || "Microphone " + (i + 1);
-            audioDeviceSelect.appendChild(opt);
-          });
-        // enableLiveAudio(null) (the checkbox's first-ever grant, or a
-        // fallback from a stale saved device) picks whatever the browser
-        // considers its default device, which isn't necessarily this
-        // list's first entry -- read back which track actually got used,
-        // select that option to match, and remember it as the preference
-        // for next time.
-        if (liveAudioStream) {
-          const track = liveAudioStream.getAudioTracks()[0];
-          const settings = track && track.getSettings && track.getSettings();
-          if (settings && settings.deviceId) {
-            audioDeviceSelect.value = settings.deviceId;
-            savePreferredAudioDeviceId(settings.deviceId);
-          }
-        }
-      });
+      return populateAudioDeviceOptionsFor(audioDeviceSelect);
     }
 
     function handleAudioDisconnect() {
@@ -484,6 +525,11 @@
     if (visualizerEl.requestFullscreen) visualizerEl.requestFullscreen().catch(() => {});
     lockScroll();
     resetIdleHide();
+    // A stream already started elsewhere (the fractal's own panel, or a
+    // host page's setup card -- see syncLiveAudioPanel's own comment)
+    // shows correctly here immediately, not just once this panel's own
+    // checkbox is toggled.
+    syncLiveAudioPanel(visualizerEl);
 
     // Re-seeded on open and on every cycle reset below, so the noise
     // pattern -- and so the exact shape of the warp -- differs each time,
@@ -568,7 +614,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vdb74fc4";
+  const FRACTAL_VERSION = "v9b71098";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -1464,6 +1510,11 @@
     if (fractalEl.requestFullscreen) fractalEl.requestFullscreen().catch(() => {});
     lockScroll();
     resetIdleHide();
+    // A stream already started elsewhere (the visualizer's own panel, or
+    // a host page's setup card -- see syncLiveAudioPanel's own comment)
+    // shows correctly here immediately, not just once this panel's own
+    // checkbox is toggled.
+    syncLiveAudioPanel(fractalEl);
 
     if (!fractalGl) {
       // WebGL unavailable (very old/restricted browser) -- nothing to
