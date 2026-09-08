@@ -356,18 +356,18 @@
 }
 
 .fractal-audio-device-col {
-  flex: 1 1 auto;
+  flex: 1 1 50%;
   min-width: 0;
 }
 
 .fractal-audio-meter-col {
-  flex: 0 0 140px;
+  flex: 1 1 50%;
 }
 
 .fractal-audio-waveform {
   display: block;
   width: 100%;
-  height: 48px;
+  height: 57.6px; /* 48px + 20% */
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.15);
