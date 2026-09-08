@@ -189,6 +189,61 @@
       const status = panel.querySelector("[data-audio-status]");
       if (status) status.textContent = "";
     });
+    stopWaveformLoop();
+  }
+
+  // A small live oscilloscope trace next to the device picker (see the
+  // markup in buildFractal/buildVisualizer/wireLiveAudioControls) -- the
+  // simplest "yes, audio is actually being detected" feedback for a
+  // control that otherwise just says "Listening" with no way to confirm
+  // that's true before opening a fractal/visualizer. One shared
+  // requestAnimationFrame loop draws the SAME waveform onto every
+  // [data-audio-waveform] canvas currently on the page (there can be up
+  // to three, same as the panels themselves) rather than one loop per
+  // panel, since they're all reading the same analyser anyway. Started
+  // on a successful enable/device-switch below; stopped and cleared
+  // from disableLiveAudio() above so it never outlives the stream.
+  let waveformRAF = null;
+  let waveformTimeDomain = null;
+  function drawWaveforms() {
+    if (!liveAudioAnalyser) {
+      waveformRAF = null;
+      return;
+    }
+    if (!waveformTimeDomain || waveformTimeDomain.length !== liveAudioAnalyser.fftSize) {
+      waveformTimeDomain = new Uint8Array(liveAudioAnalyser.fftSize);
+    }
+    liveAudioAnalyser.getByteTimeDomainData(waveformTimeDomain);
+    document.querySelectorAll("[data-audio-waveform]").forEach((canvas) => {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.beginPath();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      const step = w / waveformTimeDomain.length;
+      for (let i = 0; i < waveformTimeDomain.length; i++) {
+        // 0-255 centered on 128 (silence) -> -1..1
+        const v = waveformTimeDomain[i] / 128 - 1;
+        const x = i * step;
+        const y = h / 2 + v * (h / 2 - 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    });
+    waveformRAF = requestAnimationFrame(drawWaveforms);
+  }
+  function startWaveformLoop() {
+    if (!waveformRAF) waveformRAF = requestAnimationFrame(drawWaveforms);
+  }
+  function stopWaveformLoop() {
+    if (waveformRAF) cancelAnimationFrame(waveformRAF);
+    waveformRAF = null;
+    document.querySelectorAll("[data-audio-waveform]").forEach((canvas) => {
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    });
   }
 
   // Wires a "Live audio input" checkbox + device <select> + status text
@@ -259,6 +314,7 @@
           .then(() => {
             const label = audioDeviceSelect.selectedOptions[0];
             audioStatusEl.textContent = "Listening" + (label ? " on " + label.textContent : "") + ".";
+            startWaveformLoop();
           })
           .catch(() => {
             disableLiveAudio();
@@ -376,9 +432,14 @@
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
       '<div class="fractal-controls-row fractal-controls-audio-device" hidden>' +
+      '<div class="fractal-audio-device-col">' +
       '<label>Input device</label>' +
       '<select class="fractal-controls-select" data-audio-device></select>' +
       '<p class="fractal-controls-audio-status" data-audio-status></p>' +
+      "</div>" +
+      '<div class="fractal-audio-meter-col">' +
+      '<canvas class="fractal-audio-waveform" data-audio-waveform width="200" height="48"></canvas>' +
+      "</div>" +
       "</div>" +
       "</div>" +
       "</div>";
@@ -507,7 +568,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v5095f5d";
+  const FRACTAL_VERSION = "v0650dad";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -881,9 +942,14 @@
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
       '<div class="fractal-controls-row fractal-controls-audio-device" hidden>' +
+      '<div class="fractal-audio-device-col">' +
       '<label>Input device</label>' +
       '<select class="fractal-controls-select" data-audio-device></select>' +
       '<p class="fractal-controls-audio-status" data-audio-status></p>' +
+      "</div>" +
+      '<div class="fractal-audio-meter-col">' +
+      '<canvas class="fractal-audio-waveform" data-audio-waveform width="200" height="48"></canvas>' +
+      "</div>" +
       "</div>" +
       "</div>" +
       '<div class="fractal-controls-row"><label>Fractal shape <span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +

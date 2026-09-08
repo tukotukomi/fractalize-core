@@ -340,6 +340,48 @@
   margin-top: 4px;
 }
 
+/* Two columns on desktop -- the device picker/status on the left, the
+   live waveform meter (see fractal-audio-waveform below) to its right
+   -- collapsing to stacked (meter below) once there isn't room for
+   both side by side. flex-wrap alone would eventually do this on its
+   own at some width, but this row lives inside contexts as different
+   as a near-full-viewport bottom sheet and fractalize-studio's ~960px
+   main column, so a plain viewport media query (matching this
+   project's existing 600px breakpoint) gives a consistent, deliberate
+   mobile behavior instead of an incidental one. */
+.fractal-controls-audio-device {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.fractal-audio-device-col {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fractal-audio-meter-col {
+  flex: 0 0 140px;
+}
+
+.fractal-audio-waveform {
+  display: block;
+  width: 100%;
+  height: 48px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+@media (max-width: 600px) {
+  .fractal-controls-audio-device {
+    flex-wrap: wrap;
+  }
+  .fractal-audio-meter-col {
+    flex-basis: 100%;
+  }
+}
+
 .fractal-controls-audio-device label {
   display: block;
   font-size: 0.85rem;
