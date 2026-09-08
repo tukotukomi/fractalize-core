@@ -165,10 +165,30 @@
     }
   }
 
+  // Resets every "Live audio input" control currently on the page, not
+  // just whichever one triggered the stop -- there can be up to three at
+  // once (the fractal panel, the visualizer panel, and a host page's own
+  // copy, see wireLiveAudioControls below), all sharing this one
+  // microphone stream, so closing one or a host page's own toggle must
+  // leave the other two agreeing it's off rather than showing a stale
+  // "on" state for a stream that no longer exists. Each control's
+  // toggle/device-row/status live inside a shared [data-live-audio-panel]
+  // wrapper (see the markup in buildFractal/buildVisualizer and a host
+  // page's own, e.g. fractalize-studio's), found generically here rather
+  // than passed in, so this needs no awareness of how many panels exist
+  // or where.
   function disableLiveAudio() {
     stopLiveAudioStream();
     liveAudioAnalyser = null;
     liveAudioDataArray = null;
+    document.querySelectorAll("[data-live-audio-panel]").forEach((panel) => {
+      const toggle = panel.querySelector('[data-toggle="liveAudio"]');
+      if (toggle) toggle.checked = false;
+      const row = panel.querySelector(".fractal-controls-audio-device");
+      if (row) row.hidden = true;
+      const status = panel.querySelector("[data-audio-status]");
+      if (status) status.textContent = "";
+    });
   }
 
   // Wires a "Live audio input" checkbox + device <select> + status text
@@ -220,8 +240,7 @@
     }
 
     function handleAudioDisconnect() {
-      liveAudioToggle.checked = false;
-      audioDeviceRow.hidden = true;
+      disableLiveAudio();
       audioStatusEl.textContent = "Input device disconnected.";
     }
 
@@ -243,14 +262,10 @@
           })
           .catch(() => {
             disableLiveAudio();
-            liveAudioToggle.checked = false;
-            audioDeviceRow.hidden = true;
             audioStatusEl.textContent = "Microphone access denied or unavailable.";
           });
       } else {
         disableLiveAudio();
-        audioDeviceRow.hidden = true;
-        audioStatusEl.textContent = "";
       }
     });
 
@@ -356,6 +371,7 @@
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="bumpZoomEnabled"> Bump zoom</label>' +
       "</div>" +
+      '<div data-live-audio-panel>' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
@@ -363,6 +379,7 @@
       '<label>Input device</label>' +
       '<select class="fractal-controls-select" data-audio-device></select>' +
       '<p class="fractal-controls-audio-status" data-audio-status></p>' +
+      "</div>" +
       "</div>" +
       "</div>";
     document.body.appendChild(el);
@@ -458,17 +475,10 @@
     cancelAnimationFrame(visualizerRAF);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     unlockScrollIfNeeded();
-    // Same cleanup as closeFractal's own -- no stray mic indicator
-    // lingering after the visitor leaves, and the panel (reused verbatim
-    // on the next open) shouldn't show "on" for a stream that no longer
-    // exists.
+    // No stray mic indicator lingering after the visitor leaves -- resets
+    // every live-audio panel on the page, not just this one (see
+    // disableLiveAudio's own comment).
     disableLiveAudio();
-    const liveAudioToggle = visualizerEl.querySelector('[data-toggle="liveAudio"]');
-    if (liveAudioToggle) liveAudioToggle.checked = false;
-    const audioDeviceRow = visualizerEl.querySelector(".fractal-controls-audio-device");
-    if (audioDeviceRow) audioDeviceRow.hidden = true;
-    const audioStatusEl = visualizerEl.querySelector("[data-audio-status]");
-    if (audioStatusEl) audioStatusEl.textContent = "";
     visualizerEl.classList.remove("chrome-hidden");
     clearIdleHide();
   }
@@ -497,7 +507,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v40f646b";
+  const FRACTAL_VERSION = "v5095f5d";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -866,6 +876,7 @@
       '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
+      '<div data-live-audio-panel>' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
       "</div>" +
@@ -873,6 +884,7 @@
       '<label>Input device</label>' +
       '<select class="fractal-controls-select" data-audio-device></select>' +
       '<p class="fractal-controls-audio-status" data-audio-status></p>' +
+      "</div>" +
       "</div>" +
       '<div class="fractal-controls-row"><label>Fractal shape <span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<input type="range" data-setting="fractalPower" min="2" max="6" step="1"></div>' +
@@ -2086,16 +2098,10 @@
     if (cameraRollStopShuffleTimer) cameraRollStopShuffleTimer();
     if (settingsPanelStopRandomizerTimer) settingsPanelStopRandomizerTimer();
     // Stop capturing the moment the view closes -- no stray mic indicator
-    // lingering after the visitor leaves, and the panel (reused verbatim
-    // on the next open, see buildFractal) shouldn't show "on" for a
-    // stream that no longer exists.
+    // lingering after the visitor leaves. Resets every live-audio panel
+    // on the page, not just this one (see disableLiveAudio's own
+    // comment).
     disableLiveAudio();
-    const liveAudioToggle = fractalEl.querySelector('[data-toggle="liveAudio"]');
-    if (liveAudioToggle) liveAudioToggle.checked = false;
-    const audioDeviceRow = fractalEl.querySelector(".fractal-controls-audio-device");
-    if (audioDeviceRow) audioDeviceRow.hidden = true;
-    const audioStatusEl = fractalEl.querySelector("[data-audio-status]");
-    if (audioStatusEl) audioStatusEl.textContent = "";
     fractalEl.classList.remove("chrome-hidden");
     clearIdleHide();
   }
@@ -2195,5 +2201,16 @@
     setPhotoCatalog: function (groups) {
       photoCatalog = groups || [];
     },
+    // Lets a host page build its own "Live audio input" checkbox +
+    // device <select> + status text (same four data-hooks the fractal's
+    // and visualizer's own panels use -- see wireLiveAudioControls'
+    // own comment) and wire it to this same shared microphone stream,
+    // wrapped in a [data-live-audio-panel] element so disableLiveAudio
+    // knows to keep it in sync with the fractal/visualizer's own
+    // copies. fractalize-studio's own page uses this for a setup step
+    // before ever opening the fractal/visualizer; tuckermills.com
+    // doesn't call it, and nothing here depends on it being called at
+    // all.
+    wireLiveAudioControls,
   };
 })();
