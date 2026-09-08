@@ -188,6 +188,11 @@
       if (row) row.hidden = true;
       const status = panel.querySelector("[data-audio-status]");
       if (status) status.textContent = "";
+      // See wireLiveAudioControls' own comment on this event -- lets a
+      // host page react to the live-audio state going off from HERE
+      // (closing the fractal, another panel's own toggle, ...), not
+      // just from its own panel's checkbox changing.
+      panel.dispatchEvent(new CustomEvent("liveaudiostatechange", { detail: { active: false } }));
     });
     stopWaveformLoop();
   }
@@ -320,11 +325,20 @@
           const label = select.selectedOptions[0];
           status.textContent = "Listening" + (label ? " on " + label.textContent : "") + ".";
         }
+        panel.dispatchEvent(new CustomEvent("liveaudiostatechange", { detail: { active: true } }));
       });
     }
     startWaveformLoop();
   }
 
+  // Dispatched on `panel` itself whenever this panel's live-audio state
+  // becomes definitively known -- {active: true} once enable actually
+  // succeeds (device populated, status set to "Listening..."),
+  // {active: false} on denial/disconnect/explicit uncheck/any other
+  // panel's own stop (see disableLiveAudio's own dispatch). A host page
+  // that needs to react to the outcome -- e.g. relabeling a custom
+  // button once permission is granted -- listens for this instead of
+  // polling the checkbox or duplicating enable/disable logic itself.
   function wireLiveAudioControls(panel) {
     const liveAudioToggle = panel.querySelector('[data-toggle="liveAudio"]');
     const audioDeviceRow = panel.querySelector(".fractal-controls-audio-device");
@@ -356,6 +370,7 @@
             const label = audioDeviceSelect.selectedOptions[0];
             audioStatusEl.textContent = "Listening" + (label ? " on " + label.textContent : "") + ".";
             startWaveformLoop();
+            panel.dispatchEvent(new CustomEvent("liveaudiostatechange", { detail: { active: true } }));
           })
           .catch(() => {
             disableLiveAudio();
@@ -614,7 +629,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v470dbfe";
+  const FRACTAL_VERSION = "vd18a37d";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -2348,5 +2363,15 @@
     // doesn't call it, and nothing here depends on it being called at
     // all.
     wireLiveAudioControls,
+    // Reflects the CURRENT shared live-audio state into a panel that's
+    // just appeared -- the same sync openFractal/openVisualizer already
+    // run on their own panels every time they open (see that function's
+    // own comment), exposed so a host page's own panel (wired via
+    // wireLiveAudioControls above) can do the same the moment it's
+    // shown, e.g. fractalize-studio's "Start" modal: if audio was
+    // already granted from this page's other live-audio card, the
+    // modal's button should say so immediately, not just after its own
+    // checkbox is toggled.
+    syncLiveAudioPanel,
   };
 })();

@@ -355,6 +355,17 @@
   gap: 16px;
 }
 
+/* display:flex above otherwise beats the browser's own default
+   [hidden]{display:none} UA rule at equal specificity -- this row is
+   always rendered with the hidden attribute until the checkbox is
+   actually checked (see wireLiveAudioControls in fractalize-core.js),
+   so without this override it was visible from the start in all four
+   places that use it: the fractal's own panel, the visualizer's,
+   fractalize-studio's live-audio-help card, and its "Start" modal. */
+.fractal-controls-audio-device[hidden] {
+  display: none;
+}
+
 .fractal-audio-device-col {
   flex: 1 1 50%;
   min-width: 0;
