@@ -614,7 +614,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v9b71098";
+  const FRACTAL_VERSION = "v470dbfe";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -907,6 +907,15 @@
   let cameraRollRefreshBadges = null;
   let cameraRollStartShuffleTimer = null;
   let cameraRollStopShuffleTimer = null;
+  // Same pattern again -- lets setPhotoCatalog (see the bottom of this
+  // file) invalidate the camera-roll grid's own "build once" cache
+  // (see populateCameraRollGrid) when the catalog changes after it's
+  // already been built once. Written for fractalize-studio specifically:
+  // tuckermills.com calls setPhotoCatalog exactly once and never again,
+  // so this was never reachable there, but a host page whose catalog can
+  // change mid-session (uploads added/removed) needs the NEXT camera-
+  // roll open to reflect that, not a stale snapshot from the first one.
+  let cameraRollInvalidate = null;
   // Same pattern as the camera-roll hooks above, for the settings
   // panel's own Randomizer -- also built once inside buildFractal, so
   // openFractal/closeFractal can start/stop its timer without reaching
@@ -1108,6 +1117,10 @@
       }
     }
     cameraRollRefreshBadges = updateCameraRollBadges;
+    cameraRollInvalidate = function () {
+      cameraRollBuilt = false;
+      cameraRollGrid.innerHTML = "";
+    };
     function populateCameraRollGrid() {
       if (cameraRollBuilt) {
         updateCameraRollBadges();
@@ -2317,6 +2330,12 @@
     isVisualizerOpen,
     setPhotoCatalog: function (groups) {
       photoCatalog = groups || [];
+      // Invalidate rather than immediately rebuild -- the camera roll
+      // is only reachable from inside the fractal, and this page's own
+      // catalog can only change (uploads added/removed) while that
+      // fullscreen overlay is closed anyway, so the next open already
+      // is "immediately" from the visitor's perspective.
+      if (cameraRollInvalidate) cameraRollInvalidate();
     },
     // Lets a host page build its own "Live audio input" checkbox +
     // device <select> + status text (same four data-hooks the fractal's
