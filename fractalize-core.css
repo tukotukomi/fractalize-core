@@ -731,6 +731,38 @@
   background: #fff;
 }
 
+/* .fractal-cameraroll-thumb above gives this its base size/shape --
+   these override its plain fill with a dashed "empty dropzone" look,
+   only ever created (see buildAddPhotoTile in fractalize-core.js) when
+   a host page opts in via setUploadHandler. */
+.fractal-cameraroll-add-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.fractal-cameraroll-add-thumb:hover {
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fractal-cameraroll-add-thumb svg {
+  opacity: 0.85;
+}
+
+/* The visualizer's own copy of the same tile sits in a plain settings
+   row instead of the camera-roll's CSS grid, where .fractal-cameraroll-
+   thumb's aspect-ratio:1 would otherwise stretch it to the panel's full
+   width -- a fixed size instead, roughly matching how big it renders
+   inside that grid. */
+.visualizer-add-thumb {
+  width: 90px;
+}
+
 /* Idle-hide: after IDLE_HIDE_MS of no mouse/keyboard activity (see
    fractalize-core.js), whichever overlay is open gets this class --
    fades out its own top-level chrome buttons (never an open settings/

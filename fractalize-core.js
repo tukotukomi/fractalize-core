@@ -454,6 +454,29 @@
     ready.then(() => callback(img));
   }
 
+  // Shared by the fractal's camera-roll grid and the visualizer's own
+  // settings panel below -- a dashed square tile with a "+" icon,
+  // wrapping its own hidden multi-file input so a click opens the file
+  // picker with no separate wiring needed for that part. Only ever
+  // created when uploadHandler is set (see its own comment above);
+  // extraClass lets the visualizer size it down to fit a settings row
+  // instead of a camera-roll grid cell.
+  function buildAddPhotoTile(extraClass) {
+    const label = document.createElement("label");
+    label.className = "fractal-cameraroll-thumb fractal-cameraroll-add-thumb" + (extraClass ? " " + extraClass : "");
+    label.setAttribute("aria-label", "Add photos");
+    label.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" width="22px" height="22px" fill="#e3e3e3">' +
+      '<path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/>' +
+      "</svg>" +
+      '<input type="file" accept="image/*" multiple hidden>';
+    label.querySelector("input").addEventListener("change", (e) => {
+      if (uploadHandler) uploadHandler(e.target.files);
+      e.target.value = ""; // lets the same file(s) be re-selected later
+    });
+    return label;
+  }
+
   function buildVisualizer() {
     const el = document.createElement("div");
     el.className = "image-visualizer";
@@ -521,6 +544,15 @@
     const panel = el.querySelector(".visualizer-controls");
     settingsToggle.addEventListener("click", () => panel.classList.toggle("is-open"));
     wireLiveAudioControls(panel);
+    // Unlike the fractal, the visualizer has no camera-roll grid to add
+    // this tile to -- it goes in its own row here instead, sized down
+    // via visualizer-add-thumb (see buildAddPhotoTile's own comment).
+    if (uploadHandler) {
+      const addRow = document.createElement("div");
+      addRow.className = "fractal-controls-row visualizer-add-row";
+      addRow.appendChild(buildAddPhotoTile("visualizer-add-thumb"));
+      panel.insertBefore(addRow, el.querySelector("[data-live-audio-panel]"));
+    }
     return el;
   }
 
@@ -629,7 +661,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vd18a37d";
+  const FRACTAL_VERSION = "vbde7bb7";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -942,6 +974,14 @@
   // gallery function directly, so this file has zero dependency on how
   // (or whether) a host page organizes its own photo data.
   let photoCatalog = [];
+  // Set via setUploadHandler (see the bottom of this file) -- when set,
+  // an "add photos" tile appears in the fractal's camera-roll grid and
+  // the visualizer's own settings panel (see buildAddPhotoTile below),
+  // and picking file(s) there calls this with the resulting FileList.
+  // Null by default, so neither tile renders at all unless a host page
+  // opts in: tuckermills.com never calls setUploadHandler (no upload
+  // feature there), fractalize-studio does.
+  let uploadHandler = null;
 
   function compileShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -1144,6 +1184,18 @@
       cameraRollBuilt = true;
       const groups = photoCatalog;
       const frag = document.createDocumentFragment();
+      // Always the grid's first tile when present, in its own section
+      // ahead of every photo group -- see buildAddPhotoTile's own
+      // comment on why it only ever appears when a host page opts in.
+      if (uploadHandler) {
+        const addSection = document.createElement("div");
+        addSection.className = "fractal-cameraroll-section";
+        const addRow = document.createElement("div");
+        addRow.className = "fractal-cameraroll-row";
+        addRow.appendChild(buildAddPhotoTile());
+        addSection.appendChild(addRow);
+        frag.appendChild(addSection);
+      }
       groups.forEach((group) => {
         const section = document.createElement("div");
         section.className = "fractal-cameraroll-section";
@@ -2373,5 +2425,19 @@
     // modal's button should say so immediately, not just after its own
     // checkbox is toggled.
     syncLiveAudioPanel,
+    // Opts into the "+" add-photos tile in the fractal's camera-roll
+    // grid and the visualizer's own settings panel (see
+    // buildAddPhotoTile's own comment) -- fn is called with the
+    // FileList a visitor picked there. Call before a visitor can ever
+    // open either overlay (both are built lazily on first open, and
+    // check this at that point) -- fractalize-studio calls this once at
+    // page load, wiring it to the same saveFilesToUploads its own
+    // dropzone/add-tile use, so a photo added from inside the fractal/
+    // visualizer lands in "Your Uploads" exactly like one added from the
+    // page itself. Never called on tuckermills.com, so neither tile
+    // renders there.
+    setUploadHandler: function (fn) {
+      uploadHandler = typeof fn === "function" ? fn : null;
+    },
   };
 })();
