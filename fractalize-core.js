@@ -455,15 +455,13 @@
   }
 
   // Shared by the fractal's camera-roll grid and the visualizer's own
-  // settings panel below -- a dashed square tile with a "+" icon,
-  // wrapping its own hidden multi-file input so a click opens the file
-  // picker with no separate wiring needed for that part. Only ever
-  // created when uploadHandler is set (see its own comment above);
-  // extraClass lets the visualizer size it down to fit a settings row
-  // instead of a camera-roll grid cell.
-  function buildAddPhotoTile(extraClass) {
+  // "Your Uploads" section below -- a dashed square tile with a "+"
+  // icon, wrapping its own hidden multi-file input so a click opens
+  // the file picker with no separate wiring needed for that part. Only
+  // ever created when uploadHandler is set (see its own comment above).
+  function buildAddPhotoTile() {
     const label = document.createElement("label");
-    label.className = "fractal-cameraroll-thumb fractal-cameraroll-add-thumb" + (extraClass ? " " + extraClass : "");
+    label.className = "fractal-cameraroll-thumb fractal-cameraroll-add-thumb";
     label.setAttribute("aria-label", "Add photos");
     label.innerHTML =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" width="22px" height="22px" fill="#e3e3e3">' +
@@ -475,6 +473,45 @@
       e.target.value = ""; // lets the same file(s) be re-selected later
     });
     return label;
+  }
+
+  // The visualizer's own "Your Uploads" -- persistent (see
+  // buildAddPhotoTile's add-tile as its first entry, below) and styled
+  // like the fractal's camera-roll grid (reuses its section/row/thumb
+  // classes), but deliberately narrower: just this one group, and each
+  // thumb only switches the visualizer to that photo (onPlay) -- no
+  // queue, no shuffle, no browsing the rest of the curated catalog,
+  // none of which exists for the visualizer today and none of which
+  // was asked for here. photoCatalog[0] is treated as the uploads
+  // group by the same first-group convention populateCameraRollGrid
+  // uses (see its own comment) -- true whenever uploadHandler is set,
+  // since that's only ever the case for a host page that keeps its
+  // uploads group first, by its own convention, in what it hands to
+  // setPhotoCatalog.
+  function buildUploadsGridSection(onPlay) {
+    const group = photoCatalog[0];
+    const section = document.createElement("div");
+    section.className = "fractal-cameraroll-section";
+    const heading = document.createElement("h4");
+    heading.className = "fractal-cameraroll-section-label";
+    heading.textContent = (group && group.label) || "Your Uploads";
+    section.appendChild(heading);
+    const row = document.createElement("div");
+    row.className = "fractal-cameraroll-row";
+    row.appendChild(buildAddPhotoTile());
+    (group ? group.photos : []).forEach((photo) => {
+      const thumb = document.createElement("div");
+      thumb.className = "fractal-cameraroll-thumb";
+      thumb.innerHTML =
+        '<img src="' + photo.thumbSrc + '" alt="" loading="lazy" decoding="async" width="200" height="200">' +
+        '<div class="fractal-cameraroll-thumb-actions">' +
+        '<button type="button" class="fractal-cameraroll-action" data-action="play" aria-label="Show this photo">&#9654;</button>' +
+        "</div>";
+      thumb.querySelector('[data-action="play"]').addEventListener("click", () => onPlay(photo.src));
+      row.appendChild(thumb);
+    });
+    section.appendChild(row);
+    return section;
   }
 
   function buildVisualizer() {
@@ -542,17 +579,39 @@
     });
     const settingsToggle = el.querySelector(".image-visualizer-settings-toggle");
     const panel = el.querySelector(".visualizer-controls");
-    settingsToggle.addEventListener("click", () => panel.classList.toggle("is-open"));
     wireLiveAudioControls(panel);
-    // Unlike the fractal, the visualizer has no camera-roll grid to add
-    // this tile to -- it goes in its own row here instead, sized down
-    // via visualizer-add-thumb (see buildAddPhotoTile's own comment).
+
+    // Only when a host page has opted into uploads (see setUploadHandler)
+    // -- built lazily, same "build once, invalidate on catalog change"
+    // pattern as the fractal's own camera-roll grid (see
+    // populateCameraRollGrid/cameraRollInvalidate above), so a photo
+    // added/removed elsewhere is reflected next time this panel opens
+    // rather than showing a stale snapshot from whenever it was first
+    // built.
+    let uploadsSectionEl = null;
+    let uploadsBuilt = false;
     if (uploadHandler) {
-      const addRow = document.createElement("div");
-      addRow.className = "fractal-controls-row visualizer-add-row";
-      addRow.appendChild(buildAddPhotoTile("visualizer-add-thumb"));
-      panel.insertBefore(addRow, el.querySelector("[data-live-audio-panel]"));
+      uploadsSectionEl = document.createElement("div");
+      panel.insertBefore(uploadsSectionEl, el.querySelector("[data-live-audio-panel]"));
+      visualizerUploadsInvalidate = function () {
+        uploadsBuilt = false;
+        uploadsSectionEl.innerHTML = "";
+      };
     }
+    function populateVisualizerUploads() {
+      if (!uploadsSectionEl || uploadsBuilt) return;
+      uploadsBuilt = true;
+      uploadsSectionEl.appendChild(
+        buildUploadsGridSection((src) => {
+          if (visualizerSwitchImage) visualizerSwitchImage(src);
+        })
+      );
+    }
+    settingsToggle.addEventListener("click", () => {
+      panel.classList.toggle("is-open");
+      if (panel.classList.contains("is-open")) populateVisualizerUploads();
+    });
+
     return el;
   }
 
@@ -568,6 +627,9 @@
       visualizerTurbulenceEl = visualizerEl.querySelector("feTurbulence");
     }
     visualizerImgEl.src = srcOrImgEl instanceof HTMLImageElement ? srcOrImgEl.getAttribute("src") : srcOrImgEl;
+    visualizerSwitchImage = function (src) {
+      visualizerImgEl.src = src;
+    };
     visualizerEl.classList.add("is-open");
     if (visualizerEl.requestFullscreen) visualizerEl.requestFullscreen().catch(() => {});
     lockScroll();
@@ -627,6 +689,7 @@
     if (!isVisualizerOpen()) return;
     visualizerEl.classList.remove("is-open");
     cancelAnimationFrame(visualizerRAF);
+    visualizerSwitchImage = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     unlockScrollIfNeeded();
     // No stray mic indicator lingering after the visitor leaves -- resets
@@ -661,7 +724,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vbde7bb7";
+  const FRACTAL_VERSION = "v837cdab";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -963,12 +1026,27 @@
   // change mid-session (uploads added/removed) needs the NEXT camera-
   // roll open to reflect that, not a stale snapshot from the first one.
   let cameraRollInvalidate = null;
+  // Same pattern again, for the visualizer's own "Your Uploads" section
+  // (see buildUploadsGridSection/buildVisualizer above) -- only ever
+  // set when a host page has opted into uploads, since that section
+  // only exists in that case.
+  let visualizerUploadsInvalidate = null;
   // Same pattern as the camera-roll hooks above, for the settings
   // panel's own Randomizer -- also built once inside buildFractal, so
   // openFractal/closeFractal can start/stop its timer without reaching
   // into buildFractal's closure directly.
   let settingsPanelStartRandomizerTimer = null;
   let settingsPanelStopRandomizerTimer = null;
+  // Lets the visualizer's own "Your Uploads" grid (see
+  // buildUploadsGridSection) switch the currently showing photo without
+  // closing/reopening the overlay -- set for the duration of an active
+  // visualizer session (openVisualizer/closeVisualizer below), same
+  // "active session hook" pattern as the fractal's own
+  // activeImageSwitch just above, which this deliberately does NOT
+  // reuse: the visualizer has no queue/shuffle concept for
+  // activeImageSwitch's own candidates logic to apply to, just a
+  // single currently-displayed photo.
+  let visualizerSwitchImage = null;
   // Set via setPhotoCatalog (see the bottom of this file) -- the camera
   // roll's own photo grid reads this instead of calling any page-global
   // gallery function directly, so this file has zero dependency on how
@@ -1184,19 +1262,7 @@
       cameraRollBuilt = true;
       const groups = photoCatalog;
       const frag = document.createDocumentFragment();
-      // Always the grid's first tile when present, in its own section
-      // ahead of every photo group -- see buildAddPhotoTile's own
-      // comment on why it only ever appears when a host page opts in.
-      if (uploadHandler) {
-        const addSection = document.createElement("div");
-        addSection.className = "fractal-cameraroll-section";
-        const addRow = document.createElement("div");
-        addRow.className = "fractal-cameraroll-row";
-        addRow.appendChild(buildAddPhotoTile());
-        addSection.appendChild(addRow);
-        frag.appendChild(addSection);
-      }
-      groups.forEach((group) => {
+      groups.forEach((group, groupIndex) => {
         const section = document.createElement("div");
         section.className = "fractal-cameraroll-section";
         const heading = document.createElement("h4");
@@ -1205,6 +1271,14 @@
         section.appendChild(heading);
         const row = document.createElement("div");
         row.className = "fractal-cameraroll-row";
+        // Leads the FIRST group's row, not a section of its own -- a
+        // host page that's opted into uploads (see setUploadHandler)
+        // keeps that group first in whatever it hands to
+        // setPhotoCatalog by the same convention this relies on (see
+        // fractalize-studio's own rebuildFullCatalog), so this always
+        // lands inside "Your Uploads" specifically, persistent there
+        // even with zero uploads, exactly like that page's own section.
+        if (groupIndex === 0 && uploadHandler) row.appendChild(buildAddPhotoTile());
         group.photos.forEach((photo) => {
           const thumb = document.createElement("div");
           thumb.className = "fractal-cameraroll-thumb";
@@ -2397,12 +2471,14 @@
     isVisualizerOpen,
     setPhotoCatalog: function (groups) {
       photoCatalog = groups || [];
-      // Invalidate rather than immediately rebuild -- the camera roll
-      // is only reachable from inside the fractal, and this page's own
-      // catalog can only change (uploads added/removed) while that
-      // fullscreen overlay is closed anyway, so the next open already
-      // is "immediately" from the visitor's perspective.
+      // Invalidate rather than immediately rebuild -- both the camera
+      // roll and the visualizer's own uploads section are only
+      // reachable from inside their respective overlays, and this
+      // page's own catalog can only change (uploads added/removed)
+      // while both are closed anyway, so the next open already is
+      // "immediately" from the visitor's perspective.
       if (cameraRollInvalidate) cameraRollInvalidate();
+      if (visualizerUploadsInvalidate) visualizerUploadsInvalidate();
     },
     // Lets a host page build its own "Live audio input" checkbox +
     // device <select> + status text (same four data-hooks the fractal's
