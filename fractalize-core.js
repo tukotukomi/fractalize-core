@@ -89,6 +89,20 @@
   let liveAudioDataArray = null;
   let liveAudioStream = null;
 
+  // Off by default -- closeFractal/closeVisualizer both stop the shared
+  // stream on their way out specifically so no stray mic indicator
+  // lingers once a visitor leaves (see disableLiveAudio's own comment),
+  // which is the right call for a one-shot embedded view. A host page
+  // whose OWN flow keeps live audio as page-level, persistent state
+  // (fractalize-studio's -- its own "Live Audio In Use" button/banner
+  // reflect this same shared stream independent of either overlay being
+  // open) opts out via setKeepLiveAudioOnClose below, since a visitor
+  // there is far more likely to close one photo's fractal only to
+  // immediately reopen a different one. tuckermills.com never calls
+  // that setter, so this stays false there and closing keeps stopping
+  // the stream exactly as before.
+  let keepLiveAudioOnClose = false;
+
   const LIVE_AUDIO_DEVICE_KEY = "tuckerMillsLiveAudioDeviceId";
 
   function loadPreferredAudioDeviceId() {
@@ -694,8 +708,9 @@
     unlockScrollIfNeeded();
     // No stray mic indicator lingering after the visitor leaves -- resets
     // every live-audio panel on the page, not just this one (see
-    // disableLiveAudio's own comment).
-    disableLiveAudio();
+    // disableLiveAudio's own comment) -- unless the host page opted out
+    // via setKeepLiveAudioOnClose (see that flag's own comment).
+    if (!keepLiveAudioOnClose) disableLiveAudio();
     visualizerEl.classList.remove("chrome-hidden");
     clearIdleHide();
   }
@@ -724,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v837cdab";
+  const FRACTAL_VERSION = "vfa60569";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -2371,8 +2386,9 @@
     // Stop capturing the moment the view closes -- no stray mic indicator
     // lingering after the visitor leaves. Resets every live-audio panel
     // on the page, not just this one (see disableLiveAudio's own
-    // comment).
-    disableLiveAudio();
+    // comment) -- unless the host page opted out via
+    // setKeepLiveAudioOnClose (see that flag's own comment).
+    if (!keepLiveAudioOnClose) disableLiveAudio();
     fractalEl.classList.remove("chrome-hidden");
     clearIdleHide();
   }
@@ -2514,6 +2530,15 @@
     // renders there.
     setUploadHandler: function (fn) {
       uploadHandler = typeof fn === "function" ? fn : null;
+    },
+    // Opts out of closeFractal/closeVisualizer's own default of stopping
+    // the shared live-audio stream on their way out (see
+    // keepLiveAudioOnClose's own comment for why) -- call once, same as
+    // setUploadHandler/setPhotoCatalog above; every future close from
+    // either overlay checks the flag fresh, not just the one in effect
+    // when this was called.
+    setKeepLiveAudioOnClose: function (v) {
+      keepLiveAudioOnClose = !!v;
     },
   };
 })();
