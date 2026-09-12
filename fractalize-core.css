@@ -177,10 +177,47 @@
   height: 100%;
 }
 
-.image-fractal-close {
+/* Bottom-center bar holding all 4 chrome buttons (settings, camera
+   roll, switch-to-visualizer, close) -- replaces the old scattered
+   top-left/top-right corner placement so every control lives in one
+   mobile-friendly, thumb-reachable spot. Same slide-up glass-sheet
+   language as .fractal-controls/.fractal-cameraroll below (this is
+   really just a third, always-available bottom sheet), and sits after
+   both of those in the DOM so it paints above them rather than getting
+   covered by whichever one is open -- see buildFractal's own comment
+   for why that's required, not just cosmetic. Idle-hide (below) slides
+   it back down the same way rather than just fading it, matching that
+   language. */
+.image-fractal-toolbar {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(20, 20, 20, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px 20px 0 0;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(0);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.image-fractal.low-performance .image-fractal-toolbar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(20, 20, 20, 0.92);
+}
+
+.image-fractal-close,
+.image-fractal-switch-visualizer,
+.image-fractal-settings-toggle,
+.image-fractal-cameraroll-toggle {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -192,65 +229,20 @@
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.image-fractal-close {
   color: #fff;
   font-size: 1.6rem;
   line-height: 1;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
 }
 
-.image-fractal-close:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-/* Sits directly left of the close button, mirroring the visualizer's
-   own .image-visualizer-switch-fractal -- switches to the visualizer on
-   the same photo without leaving fullscreen. */
-.image-fractal-switch-visualizer {
-  position: absolute;
-  top: 20px;
-  right: 76px;
-  z-index: 1;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.image-fractal-switch-visualizer:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.image-fractal-settings-toggle {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  z-index: 1;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.image-fractal-settings-toggle:hover {
+.image-fractal-close:hover,
+.image-fractal-switch-visualizer:hover,
+.image-fractal-settings-toggle:hover,
+.image-fractal-cameraroll-toggle:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -278,7 +270,11 @@
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 20px 20px 0 0;
-  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  /* Extra bottom padding (vs. the visualizer's own equivalent panel)
+     clears .image-fractal-toolbar, which stays visible on top of
+     whichever sheet is open (see its own comment) -- without this its
+     content would sit behind the toolbar's own 44px buttons. */
+  padding: 20px 24px calc(78px + env(safe-area-inset-bottom, 0px));
   transform: translateY(100%);
   transition: transform 0.3s ease;
 }
@@ -432,32 +428,6 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* Camera roll: same 44x44 circle-button language as the settings gear,
-   positioned 44px + 12px gap to its right so the two sit side by side. */
-.image-fractal-cameraroll-toggle {
-  position: absolute;
-  top: 20px;
-  left: 76px;
-  z-index: 1;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.image-fractal-cameraroll-toggle:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
 /* Same slide-up glass sheet as .fractal-controls -- a second, mutually
    exclusive bottom sheet (see buildFractal's toggle wiring) rather than
    a second visual language, so the two panels read as one family. */
@@ -480,7 +450,11 @@
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 20px 20px 0 0;
-  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  /* Extra bottom padding (vs. the visualizer's own equivalent panel)
+     clears .image-fractal-toolbar, which stays visible on top of
+     whichever sheet is open (see its own comment) -- without this its
+     content would sit behind the toolbar's own 44px buttons. */
+  padding: 20px 24px calc(78px + env(safe-area-inset-bottom, 0px));
   transform: translateY(100%);
   transition: transform 0.3s ease;
 }
@@ -766,23 +740,26 @@
   cursor: none;
 }
 
-.image-fractal-close,
-.image-fractal-switch-visualizer,
-.image-fractal-settings-toggle,
-.image-fractal-cameraroll-toggle,
 .image-visualizer-close,
 .image-visualizer-switch-fractal,
 .image-visualizer-settings-toggle {
   transition: background-color 0.2s ease, opacity 0.4s ease;
 }
 
-.image-fractal.chrome-hidden .image-fractal-close,
-.image-fractal.chrome-hidden .image-fractal-switch-visualizer,
-.image-fractal.chrome-hidden .image-fractal-settings-toggle,
-.image-fractal.chrome-hidden .image-fractal-cameraroll-toggle,
 .image-visualizer.chrome-hidden .image-visualizer-close,
 .image-visualizer.chrome-hidden .image-visualizer-switch-fractal,
 .image-visualizer.chrome-hidden .image-visualizer-settings-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The fractal's own chrome is one unit now (.image-fractal-toolbar,
+   see above) -- slides back down the same way the settings/camera-roll
+   sheets themselves slide up, rather than just fading each button out,
+   so idle-hide reads as the same physical sheet retreating rather than
+   a different effect for a third thing that looks just like them. */
+.image-fractal.chrome-hidden .image-fractal-toolbar {
+  transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
 }
