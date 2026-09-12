@@ -739,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v3784e02";
+  const FRACTAL_VERSION = "v991ad96";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -1093,6 +1093,7 @@
     el.className = "image-fractal";
     el.innerHTML =
       '<canvas class="image-fractal-canvas"></canvas>' +
+      '<button type="button" class="image-fractal-close" aria-label="Close fractal view">&times;</button>' +
       '<div class="fractal-cameraroll">' +
       '<div class="fractal-cameraroll-header">' +
       '<label class="fractal-cameraroll-shuffle"><input type="checkbox" data-toggle="shuffleEnabled"> Enable shuffle</label>' +
@@ -1161,7 +1162,11 @@
       // than getting covered by whichever one is open. That's required,
       // not just cosmetic: its own settings/camera-roll buttons are the
       // only way to close either sheet again short of closing the whole
-      // fractal, so they have to stay reachable while one is open.
+      // fractal, so they have to stay reachable while one is open. Close
+      // itself lives back up in its own top-right corner (see above) --
+      // grouping it with settings/camera-roll/switch-visualizer here read
+      // as "another mode toggle" rather than "leave", so it's deliberately
+      // NOT part of this bar, just styled to match it.
       '<div class="image-fractal-toolbar">' +
       '<button type="button" class="image-fractal-settings-toggle" aria-label="Fractal settings">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" fill="none" ' +
@@ -1181,7 +1186,6 @@
       '<path d="M852-212 732-332l56-56 120 120-56 56ZM708-692l-56-56 120-120 56 56-120 120Zm-456 0L132-812l56-56 120 120-56 56ZM108-212l-56-56 120-120 56 56-120 120Zm246-75 126-76 126 77-33-144 111-96-146-13-58-136-58 135-146 13 111 97-33 143ZM233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Zm247-361Z"/>' +
       "</svg>" +
       "</button>" +
-      '<button type="button" class="image-fractal-close" aria-label="Close fractal view">&times;</button>' +
       "</div>";
     document.body.appendChild(el);
 

@@ -177,17 +177,18 @@
   height: 100%;
 }
 
-/* Bottom-center bar holding all 4 chrome buttons (settings, camera
-   roll, switch-to-visualizer, close) -- replaces the old scattered
-   top-left/top-right corner placement so every control lives in one
-   mobile-friendly, thumb-reachable spot. Same slide-up glass-sheet
-   language as .fractal-controls/.fractal-cameraroll below (this is
-   really just a third, always-available bottom sheet), and sits after
-   both of those in the DOM so it paints above them rather than getting
-   covered by whichever one is open -- see buildFractal's own comment
-   for why that's required, not just cosmetic. Idle-hide (below) slides
-   it back down the same way rather than just fading it, matching that
-   language. */
+/* Bottom-center bar holding the 3 mode/panel buttons (settings, camera
+   roll, switch-to-visualizer) -- replaces their old scattered
+   top-left/top-right corner placement so they live in one
+   mobile-friendly, thumb-reachable spot. Close (below) deliberately
+   stays out of this group -- see its own comment. Same slide-up
+   glass-sheet language as .fractal-controls/.fractal-cameraroll below
+   (this is really just a third, always-available bottom sheet), and
+   sits after both of those in the DOM so it paints above them rather
+   than getting covered by whichever one is open -- see buildFractal's
+   own comment for why that's required, not just cosmetic. Idle-hide
+   (below) slides it back down the same way rather than just fading it,
+   matching that language. */
 .image-fractal-toolbar {
   position: absolute;
   left: 0;
@@ -208,7 +209,8 @@
   transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
-.image-fractal.low-performance .image-fractal-toolbar {
+.image-fractal.low-performance .image-fractal-toolbar,
+.image-fractal.low-performance .image-fractal-close {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background: rgba(20, 20, 20, 0.92);
@@ -228,22 +230,43 @@
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
+.image-fractal-switch-visualizer,
+.image-fractal-settings-toggle,
+.image-fractal-cameraroll-toggle {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.image-fractal-switch-visualizer:hover,
+.image-fractal-settings-toggle:hover,
+.image-fractal-cameraroll-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Back in its original top-right corner (see buildFractal's own
+   comment for why it's not grouped with the other 3) -- same glass
+   background/blur as .image-fractal-toolbar/.fractal-controls though,
+   rather than the plain translucent-white the corner buttons used
+   before this bar existed, so it still reads as part of the same
+   control family. */
 .image-fractal-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
+  background: rgba(20, 20, 20, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: #fff;
   font-size: 1.6rem;
   line-height: 1;
 }
 
-.image-fractal-close:hover,
-.image-fractal-switch-visualizer:hover,
-.image-fractal-settings-toggle:hover,
-.image-fractal-cameraroll-toggle:hover {
-  background: rgba(255, 255, 255, 0.2);
+.image-fractal-close:hover {
+  background: rgba(20, 20, 20, 0.92);
 }
 
 /* A small, semi-transparent settings sheet -- deliberately minimal (one
@@ -753,11 +776,30 @@
   pointer-events: none;
 }
 
-/* The fractal's own chrome is one unit now (.image-fractal-toolbar,
-   see above) -- slides back down the same way the settings/camera-roll
-   sheets themselves slide up, rather than just fading each button out,
-   so idle-hide reads as the same physical sheet retreating rather than
-   a different effect for a third thing that looks just like them. */
+/* The fractal's own bottom-sheet chrome is one unit (.image-fractal-
+   toolbar, see above) -- slides back down the same way the settings/
+   camera-roll sheets themselves slide up, rather than just fading each
+   button out, so idle-hide reads as the same physical sheet retreating
+   rather than a different effect for a third thing that looks just
+   like them. Close lives back in its own corner (see its own comment
+   above) -- unlike the settings/camera-roll toggles it's the ONE
+   button not gated behind a "reveal chrome first" step in most photo
+   viewers, but this file already treats every chrome button the same
+   idle-hide way pre-dating this bar's own existence, so it keeps
+   fading with the rest here rather than carving out a new exception.
+   Same 0.4s opacity fade as the visualizer's own equivalent buttons
+   above, not the bar's 0.3s slide, since fading in place (not sliding
+   off toward the bottom) is still the right motion for a corner
+   button. */
+.image-fractal-close {
+  transition: background-color 0.2s ease, opacity 0.4s ease;
+}
+
+.image-fractal.chrome-hidden .image-fractal-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .image-fractal.chrome-hidden .image-fractal-toolbar {
   transform: translateY(100%);
   opacity: 0;
