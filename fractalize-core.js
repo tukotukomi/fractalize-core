@@ -739,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v991ad96";
+  const FRACTAL_VERSION = "v1bc6239";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -2417,7 +2417,7 @@
   // listeners (same pattern as the fullscreenchange/keydown listeners
   // below) rather than per-open wiring, since only one overlay can be
   // open at a time anyway.
-  const IDLE_HIDE_MS = 10000;
+  const IDLE_HIDE_MS = 5000;
   let idleHideTimer = null;
 
   function activeOverlayEl() {
