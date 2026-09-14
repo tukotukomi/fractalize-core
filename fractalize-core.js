@@ -739,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v1bc6239";
+  const FRACTAL_VERSION = "vcfc5d87";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -748,20 +748,21 @@
   // tuned.
   const FRACTAL_DEFAULTS = {
     ogMode: false,
-    // Neither of these existed in the fractal at all before this
-    // panel -- computePulse was only ever wired into the noise-warp
-    // visualizer, and growth's iteration-budget machinery was removed
-    // in an earlier revert and never came back. Off/0 is the accurate
-    // "current behavior" default for both, not a guess.
-    musicReactivityPct: 0,
+    // growthEnabled didn't exist in the fractal at all before this panel
+    // -- its iteration-budget machinery was removed in an earlier revert
+    // and never came back. Off is the accurate "current behavior"
+    // default for it, not a guess. musicReactivityPct/
+    // reactivitySmoothingPct below are both deliberately turned up
+    // rather than left at their own "current behavior" 0s, so the effect
+    // is on and already smoothed out of the box for a first-time
+    // visitor, not something they have to discover two sliders away.
+    musicReactivityPct: 80,
     // How much of each frame's smoothed pulse carries over into the
     // next, vs. the raw analyser reading (see the smoothing math in
     // frame() below) -- 0 reproduces the original un-smoothed behavior
-    // exactly. Defaulted on (not 0) since a visitor turning up "Music
-    // reactivity" for the first time is specifically looking for a
-    // pleasant wobble, not raw meter jitter; still fully adjustable back
-    // down to 0 for anyone who prefers the snappier original feel.
-    reactivitySmoothingPct: 30,
+    // exactly. Still fully adjustable back down to 0 for anyone who
+    // prefers the snappier, un-smoothed feel.
+    reactivitySmoothingPct: 65,
     growthEnabled: false,
     // 7x is the proven-safe ceiling this whole mode is built around
     // (see the "Smooth mode" comment above injectFromImage below) --
@@ -811,10 +812,13 @@
     // runs on every cycle wrap, RANDOMIZE NOW, and Fractal-shape drag),
     // and drops the settings/camera-roll panels' backdrop-filter blur
     // (continuously recomputed over an animating full-bleed canvas --
-    // see resize()'s own comment on why that's expensive). Off by
-    // default since it's a real, visible quality tradeoff, not a free
-    // win.
-    lowPerformanceMode: false,
+    // see resize()'s own comment on why that's expensive). On by
+    // default -- a real, visible quality tradeoff, but one weighted
+    // toward "works smoothly for most visitors out of the box" over
+    // "best possible look for visitors who never open the settings
+    // panel"; still one tap to turn off for anyone whose machine can
+    // afford full quality.
+    lowPerformanceMode: true,
   };
   const FRACTAL_SETTINGS_KEY = "tuckerMillsFractalSettings";
   // Pill choices for the camera roll's shuffle timer -- deliberately not
