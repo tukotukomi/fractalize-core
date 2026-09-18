@@ -739,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vcfc5d87";
+  const FRACTAL_VERSION = "v21f3120";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -905,9 +905,28 @@
     "  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);\n" +
     "  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);\n" +
     "}\n" +
+    // Saturation was 2.6x here, not 1.3x -- user-reported (comparing
+    // macro-03.jpg against the fractal it produced) as the actual cause
+    // of source photos reading with visibly wrong colors: a moderately
+    // saturated coral/pink (S around 0.7-0.8) clamps straight to 1.0 at
+    // 2.6x, and a fully-saturated color reads as a much "purer"/hotter
+    // version of its own hue than the source ever was -- pink into pure
+    // red, mid-green into a crushed, oversaturated dark green. Verified
+    // empirically against macro-03.jpg (sampling rendered vs. source
+    // pixel color, converting both to HSV): 1.3x lands rendered petal
+    // hues within a few degrees of the source's, at comparable
+    // saturation/value, while still giving the genuinely-dulled
+    // (LINEAR-blending-desaturated, see above) greens a real lift
+    // instead of leaving them flat. A full 1.0x (no saturation boost at
+    // all) matched source hue even more exactly but left saturation/
+    // value on both petals and leaves visibly duller than the source --
+    // 1.3x is the empirical middle ground, not a round-number guess.
+    // uBgSaturation's own default (30%, see FRACTAL_DEFAULTS) is
+    // unrelated -- that scales uBaseColor, a flat per-frame average, not
+    // any of this.
     "vec3 boostDetail(vec3 c) {\n" +
     "  vec3 hsv = rgb2hsv(c);\n" +
-    "  hsv.y = clamp(hsv.y * 2.6, 0.0, 1.0);\n" +
+    "  hsv.y = clamp(hsv.y * 1.3, 0.0, 1.0);\n" +
     "  hsv.z = clamp(hsv.z * 1.4, 0.0, 1.0);\n" +
     "  return hsv2rgb(hsv);\n" +
     "}\n" +
