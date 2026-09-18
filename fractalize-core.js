@@ -739,7 +739,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v21f3120";
+  const FRACTAL_VERSION = "v873f2f9";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -1003,7 +1003,24 @@
     "    vec3 bgHsv = rgb2hsv(uBaseColor);\n" +
     "    bgHsv.y = clamp(bgHsv.y * uBgSaturation, 0.0, 1.0);\n" +
     "    vec3 bgColor = hsv2rgb(bgHsv);\n" +
-    "    gl_FragColor = mix(vec4(bgColor, 1.0), vec4(texColor, 1.0), t);\n" +
+    // t itself (used above for the crossfade reveal threshold too, left
+    // untouched) still governs how dark a genuinely-empty pixel reads --
+    // a low-iteration pixel that escaped almost immediately keeps
+    // exactly the same small t, same bgColor-dominated result, as
+    // before. tMix is a second, separate curve used ONLY for this final
+    // blend: smoothstep's own flat plateau below 0.35 (unlike a plain
+    // pow curve, which has infinite slope right at 0 and so lifts
+    // everything, including near-empty pixels) means t below that stays
+    // completely unlifted -- only pixels that already have real nearby
+    // structure (t past 0.35, on their way toward the boundary) get
+    // pulled the rest of the way toward pure texColor, faster than t
+    // alone would carry them. Without this, a pixel sitting at, say,
+    // t=0.5 -- recognizable photo detail, not empty space -- was still
+    // rendering as a 50/50 blend with the (deliberately darkened, see
+    // uBaseColor's own *0.55 comment above) background color, reading
+    // as a dim wash over the detail rather than the detail itself.
+    "    float tMix = mix(t, 1.0, smoothstep(0.35, 0.75, t));\n" +
+    "    gl_FragColor = mix(vec4(bgColor, 1.0), vec4(texColor, 1.0), tMix);\n" +
     "  }\n" +
     "}\n";
 
