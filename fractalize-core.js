@@ -1370,10 +1370,14 @@
       "</div>" +
       "</div>" +
       "</div>" +
+      // Only shown while live audio is on -- without it there's no
+      // music to react to (see the observer wired in buildFractal).
+      '<div data-live-audio-only hidden>' +
       '<div class="fractal-controls-row"><label>Music reactivity <span class="fractal-controls-value" data-value-for="musicReactivityPct"></span></label>' +
       '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
+      "</div>" +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
       "</div>" +
       // Sits after both bottom sheets above in the DOM specifically so it
@@ -1701,6 +1705,16 @@
     // drops the panels' backdrop-filter blur.
     el.classList.add("low-performance");
     wireLiveAudioControls(panel);
+    // Follows the device row's own hidden flag, which every enable/
+    // disable/sync path already sets (see disableLiveAudio/
+    // syncLiveAudioPanel) -- so this needs no hook into any of them.
+    const liveAudioOnlyEl = panel.querySelector("[data-live-audio-only]");
+    const audioDeviceRowEl = panel.querySelector(".fractal-controls-audio-device");
+    const syncLiveAudioOnly = () => {
+      liveAudioOnlyEl.hidden = audioDeviceRowEl.hidden;
+    };
+    new MutationObserver(syncLiveAudioOnly).observe(audioDeviceRowEl, { attributes: true, attributeFilter: ["hidden"] });
+    syncLiveAudioOnly();
 
     el.querySelector(".image-fractal-close").addEventListener("click", closeFractal);
     // activeCurrentImageSrc (kept in sync by the active session, see
