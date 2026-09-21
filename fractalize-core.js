@@ -23,14 +23,17 @@
   // virtual-cable device selected can feed their actual system/Bandcamp
   // playback audio in, same as the fractal. No live audio means no
   // reactivity -- both views sit inert/idle rather than fake a reaction to
-  // audio that was never actually heard. The warp itself is a native SVG
-  // filter (feTurbulence + feDisplacementMap), animated by rewriting its
-  // scale each frame -- no canvas, no libraries.
+  // audio that was never actually heard. The warp itself is a small
+  // hand-written WebGL fragment shader (fractal noise displacing the
+  // photo's sampling coordinates -- see VISUALIZER_FRAGMENT_SHADER), so
+  // the per-pixel work runs on the GPU in every browser. It replaced an
+  // SVG feTurbulence/feDisplacementMap filter, which Firefox renders on
+  // the CPU.
   let visualizerEl = null;
-  let visualizerImgEl = null;
-  let visualizerDisplacementEl = null;
-  let visualizerTurbulenceEl = null;
+  let visualizerCanvasEl = null;
+  let visualizerCurrentSrc = null;
   let visualizerRAF = null;
+  let visualizerCleanupResize = null;
   // The visualizer's own tiny persisted settings -- separate from
   // fractalSettings/FRACTAL_SETTINGS_KEY below since that object is only
   // ever loaded when the fractal itself is opened at least once
@@ -548,13 +551,7 @@
     const el = document.createElement("div");
     el.className = "image-visualizer";
     el.innerHTML =
-      '<svg width="0" height="0" style="position:absolute">' +
-      '<filter id="visualizer-warp" x="-20%" y="-20%" width="140%" height="140%">' +
-      '<feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="7" result="turb"></feTurbulence>' +
-      '<feDisplacementMap in="SourceGraphic" in2="turb" scale="0" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>' +
-      "</filter>" +
-      "</svg>" +
-      '<img class="image-visualizer-img" alt="">' +
+      '<canvas class="image-visualizer-canvas"></canvas>' +
       '<button type="button" class="image-visualizer-close" aria-label="Close visualizer">&times;</button>' +
       '<button type="button" class="image-visualizer-switch-fractal" aria-label="Switch to fractal view">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22px" height="22px" fill="#e3e3e3" fill-rule="evenodd">' +
@@ -603,7 +600,7 @@
     // regardless (same defensive pattern as the fractal's own switch
     // button below, which DOES get its source nulled on close).
     el.querySelector(".image-visualizer-switch-fractal").addEventListener("click", () => {
-      const src = visualizerImgEl.src;
+      const src = visualizerCurrentSrc;
       closeVisualizer();
       openFractal(src);
     });
@@ -649,17 +646,129 @@
     return !!visualizerEl && visualizerEl.classList.contains("is-open");
   }
 
+  // Fractal-noise warp of the photo. Same look as the SVG filter it
+  // replaced: two independent fractal-noise fields (standing in for the
+  // filter's R and G channels) offset each pixel's sampling position by
+  // uScale * (noise - 0.5) CSS pixels, on top of a music-driven zoom, a
+  // slow hue rotation and a brightness lift. Coordinates are in CSS
+  // pixels so noise frequencies (cycles per pixel) match the old
+  // baseFrequency values regardless of devicePixelRatio.
+  const VISUALIZER_VERTEX_SHADER = "attribute vec2 aPos;\nvoid main() { gl_Position = vec4(aPos, 0.0, 1.0); }\n";
+  const VISUALIZER_FRAGMENT_SHADER =
+    "precision highp float;\n" +
+    "uniform sampler2D uImage;\n" +
+    "uniform vec2 uViewSize;\n" + // viewport size, CSS px
+    "uniform vec2 uDeviceSize;\n" + // canvas size, device px
+    "uniform vec2 uImageSize;\n" + // texture size, px
+    "uniform vec2 uFreq;\n" + // noise cycles per CSS px (x, y)
+    "uniform float uOctaves;\n" + // 1..5
+    "uniform vec2 uSeed;\n" + // per-cycle offset into the noise field
+    "uniform float uScale;\n" + // displacement, CSS px
+    "uniform float uZoom;\n" + // image scale about the center
+    "uniform float uHue;\n" + // radians
+    "uniform float uBright;\n" +
+    "vec2 hash2(vec2 p) {\n" +
+    "  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));\n" +
+    "  return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);\n" +
+    "}\n" +
+    // Gradient (Perlin-style) noise, roughly -0.7..0.7.
+    "float gnoise(vec2 p) {\n" +
+    "  vec2 i = floor(p);\n" +
+    "  vec2 f = fract(p);\n" +
+    "  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);\n" +
+    "  float a = dot(hash2(i), f);\n" +
+    "  float b = dot(hash2(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));\n" +
+    "  float c = dot(hash2(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));\n" +
+    "  float d = dot(hash2(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));\n" +
+    "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n" +
+    "}\n" +
+    // feTurbulence-style fractalNoise: octaves summed at doubling
+    // frequency / halving amplitude, remapped to 0..1 around 0.5.
+    "float fbm(vec2 p) {\n" +
+    "  float sum = 0.0;\n" +
+    "  float amp = 1.0;\n" +
+    "  for (int i = 0; i < 5; i++) {\n" +
+    "    if (float(i) >= uOctaves) break;\n" +
+    "    sum += gnoise(p) * amp;\n" +
+    "    p *= 2.0;\n" +
+    "    amp *= 0.5;\n" +
+    "  }\n" +
+    "  return 0.5 + 0.5 * sum;\n" +
+    "}\n" +
+    "void main() {\n" +
+    // Position in CSS px, origin bottom-left (gl_FragCoord is in device
+    // px, so scale by the css/device ratio).
+    "  vec2 pos = gl_FragCoord.xy * (uViewSize / uDeviceSize);\n" +
+    "  vec2 np = pos * uFreq + uSeed;\n" +
+    "  vec2 disp = vec2(fbm(np), fbm(np + vec2(31.7, 17.3))) - 0.5;\n" +
+    "  vec2 q = pos + disp * uScale;\n" +
+    // Zoom about the viewport center.
+    "  q = (q - uViewSize * 0.5) / uZoom + uViewSize * 0.5;\n" +
+    // object-fit: cover mapping from viewport px to texture uv.
+    "  float s = max(uViewSize.x / uImageSize.x, uViewSize.y / uImageSize.y);\n" +
+    "  vec2 drawn = uImageSize * s;\n" +
+    "  vec2 uv = (q - (uViewSize - drawn) * 0.5) / drawn;\n" +
+    "  vec3 col = texture2D(uImage, clamp(uv, 0.0, 1.0)).rgb;\n" +
+    // CSS hue-rotate() matrix.
+    "  float cs = cos(uHue);\n" +
+    "  float sn = sin(uHue);\n" +
+    "  mat3 hm = mat3(\n" +
+    "    0.213 + cs * 0.787 - sn * 0.213, 0.213 - cs * 0.213 + sn * 0.143, 0.213 - cs * 0.213 - sn * 0.787,\n" +
+    "    0.715 - cs * 0.715 - sn * 0.715, 0.715 + cs * 0.285 + sn * 0.140, 0.715 - cs * 0.715 + sn * 0.715,\n" +
+    "    0.072 - cs * 0.072 + sn * 0.928, 0.072 - cs * 0.072 - sn * 0.283, 0.072 + cs * 0.928 + sn * 0.072);\n" +
+    "  col = clamp(hm * col * uBright, 0.0, 1.0);\n" +
+    "  gl_FragColor = vec4(col, 1.0);\n" +
+    "}\n";
+
+  // Largest texture edge for the visualizer's photo: it fills the whole
+  // viewport (cover-fit), so it gets more resolution than the fractal's
+  // own texture (TEXTURE_MAX_DIM), which is only ever sampled through
+  // the iterated coordinate.
+  const VISUALIZER_TEXTURE_MAX_DIM = 2048;
+
   function openVisualizer(srcOrImgEl) {
     if (!visualizerEl) {
       visualizerEl = buildVisualizer();
-      visualizerImgEl = visualizerEl.querySelector(".image-visualizer-img");
-      visualizerDisplacementEl = visualizerEl.querySelector("feDisplacementMap");
-      visualizerTurbulenceEl = visualizerEl.querySelector("feTurbulence");
+      visualizerCanvasEl = visualizerEl.querySelector(".image-visualizer-canvas");
     }
-    visualizerImgEl.src = srcOrImgEl instanceof HTMLImageElement ? srcOrImgEl.getAttribute("src") : srcOrImgEl;
-    visualizerSwitchImage = function (src) {
-      visualizerImgEl.src = src;
-    };
+    const canvas = visualizerCanvasEl;
+    const glOptions = { antialias: false, alpha: false };
+    // One context for the canvas's lifetime (a canvas can't switch
+    // context types), created lazily on first open and reused after.
+    if (!canvas._gl) {
+      const gl = canvas.getContext("webgl", glOptions) || canvas.getContext("experimental-webgl", glOptions);
+      if (gl) {
+        const program = gl.createProgram();
+        gl.attachShader(program, compileShader(gl, gl.VERTEX_SHADER, VISUALIZER_VERTEX_SHADER));
+        gl.attachShader(program, compileShader(gl, gl.FRAGMENT_SHADER, VISUALIZER_FRAGMENT_SHADER));
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error("Visualizer shader program failed to link: " + gl.getProgramInfoLog(program));
+        }
+        gl.useProgram(program);
+        const quad = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        const aPos = gl.getAttribLocation(program, "aPos");
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        const names = ["uImage", "uViewSize", "uDeviceSize", "uImageSize", "uFreq", "uOctaves", "uSeed", "uScale", "uZoom", "uHue", "uBright"];
+        const u = {};
+        names.forEach((n) => (u[n] = gl.getUniformLocation(program, n)));
+        canvas._gl = { gl, tex, u };
+      }
+    }
+    const ctx = canvas._gl;
+    if (!ctx) return; // WebGL unavailable -- nothing sensible to draw
+    const { gl, tex, u } = ctx;
+
     visualizerEl.classList.add("is-open");
     if (visualizerEl.requestFullscreen) visualizerEl.requestFullscreen().catch(() => {});
     lockScroll();
@@ -670,13 +779,43 @@
     // checkbox is toggled.
     syncLiveAudioPanel(visualizerEl);
 
+    let imageSize = null; // null until a photo has been uploaded to the texture
+    let loadToken = 0;
+    function loadImage(srcOrEl) {
+      const token = ++loadToken;
+      visualizerCurrentSrc = srcOrEl instanceof HTMLImageElement ? srcOrEl.getAttribute("src") : srcOrEl;
+      resolveImageSource(srcOrEl, (imgEl) => {
+        if (token !== loadToken || !isVisualizerOpen()) return; // superseded or closed
+        const source = downscaleForTexture(imgEl, VISUALIZER_TEXTURE_MAX_DIM);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+        imageSize = [source.width || source.naturalWidth, source.height || source.naturalHeight];
+      });
+    }
+    loadImage(srcOrImgEl);
+    visualizerSwitchImage = loadImage;
+
+    // Canvas backing store follows the viewport (CSS px * dpr, dpr capped:
+    // the warp is soft, so full retina resolution isn't worth the fill
+    // cost). Re-run on window resize and fullscreen changes.
+    let viewW = 1;
+    let viewH = 1;
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      viewW = Math.max(1, window.innerWidth);
+      viewH = Math.max(1, window.innerHeight);
+      canvas.width = Math.round(viewW * dpr);
+      canvas.height = Math.round(viewH * dpr);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+    visualizerCleanupResize = () => window.removeEventListener("resize", resize);
+
     // Re-seeded on open and on every cycle reset below, so the noise
     // pattern -- and so the exact shape of the warp -- differs each time,
     // per the "randomized each time" ask.
-    function reseed() {
-      visualizerTurbulenceEl.setAttribute("seed", String(Math.floor(Math.random() * 1000)));
-    }
-    reseed();
+    let seed = [Math.random() * 1000, Math.random() * 1000];
     let lastCyclePhase = 0;
 
     const startTime = performance.now();
@@ -684,32 +823,39 @@
       if (!isVisualizerOpen()) return;
       const elapsedSec = (now - startTime) / 1000;
 
-      // "Descend into fractal detail": baseFrequency and numOctaves both
-      // climb across the cycle, packing in progressively finer, more
-      // layered noise -- feTurbulence's own fractal octaves are what
-      // make this read as "deeper" rather than just "busier" -- then
-      // snap back to a shallow start and reseed for the next descent.
+      // "Descend into fractal detail": noise frequency and octave count
+      // both climb across the cycle, packing in progressively finer,
+      // more layered noise -- octaves are what make this read as
+      // "deeper" rather than just "busier" -- then snap back to a shallow
+      // start and reseed for the next descent.
       const cyclePhase = (((now - startTime) % FRACTAL_CYCLE_MS) / FRACTAL_CYCLE_MS);
-      if (cyclePhase < lastCyclePhase) reseed();
+      if (cyclePhase < lastCyclePhase) seed = [Math.random() * 1000, Math.random() * 1000];
       lastCyclePhase = cyclePhase;
       const freq = 0.006 + cyclePhase * 0.034;
-      visualizerTurbulenceEl.setAttribute("baseFrequency", `${freq.toFixed(4)} ${(freq * 1.5).toFixed(4)}`);
-      visualizerTurbulenceEl.setAttribute("numOctaves", String(1 + Math.floor(cyclePhase * 4)));
 
       // "Bump zoom" toggle (see VISUALIZER_DEFAULTS): off means the warp's
       // displacement/zoom-scale/brightness sit at their idle values below
       // regardless of live audio, same as if the pulse were always 0 --
-      // the raw analyser reading has no smoothing of its own (unlike the
-      // fractal's own reactivity, whose effect is naturally damped by
-      // being just one input to a slow-moving exponent, see
-      // musicReactivityPct above), so this is the direct fix for anyone
-      // who finds that jitter distracting rather than lively.
+      // the raw analyser reading has no smoothing of its own, so this is
+      // the direct fix for anyone who finds that jitter distracting
+      // rather than lively.
       const pulse = visualizerSettings.bumpZoomEnabled ? computePulse() : 0;
 
-      visualizerDisplacementEl.setAttribute("scale", (pulse * 45).toFixed(1));
-      visualizerImgEl.style.transform = `scale(${(1 + pulse * 0.06).toFixed(3)})`;
-      visualizerImgEl.style.filter =
-        `url(#visualizer-warp) hue-rotate(${((elapsedSec * 12) % 360).toFixed(1)}deg) brightness(${(1 + pulse * 0.15).toFixed(3)})`;
+      if (imageSize) {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.uniform1i(u.uImage, 0);
+        gl.uniform2f(u.uViewSize, viewW, viewH);
+        gl.uniform2f(u.uDeviceSize, canvas.width, canvas.height);
+        gl.uniform2f(u.uImageSize, imageSize[0], imageSize[1]);
+        gl.uniform2f(u.uFreq, freq, freq * 1.5);
+        gl.uniform1f(u.uOctaves, 1 + Math.floor(cyclePhase * 4));
+        gl.uniform2f(u.uSeed, seed[0], seed[1]);
+        gl.uniform1f(u.uScale, pulse * 45);
+        gl.uniform1f(u.uZoom, 1 + pulse * 0.06);
+        gl.uniform1f(u.uHue, ((elapsedSec * 12) % 360) * (Math.PI / 180));
+        gl.uniform1f(u.uBright, 1 + pulse * 0.15);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
       visualizerRAF = requestAnimationFrame(frame);
     }
     visualizerRAF = requestAnimationFrame(frame);
@@ -720,6 +866,8 @@
     visualizerEl.classList.remove("is-open");
     cancelAnimationFrame(visualizerRAF);
     visualizerSwitchImage = null;
+    if (visualizerCleanupResize) visualizerCleanupResize();
+    visualizerCleanupResize = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     unlockScrollIfNeeded();
     // No stray mic indicator lingering after the visitor leaves -- resets

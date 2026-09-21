@@ -34,7 +34,7 @@
   transition: opacity 0.3s ease, visibility 0s linear 0s;
 }
 
-.image-visualizer-img {
+.image-visualizer-canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -152,9 +152,9 @@
 
 /* Fullscreen WebGL "Mandelbrot zoom" view -- same shell pattern as
    .image-visualizer above (fixed, fades in/out, sits at the same
-   z-index tier), but its content is a <canvas> instead of an <img>+SVG
-   filter. See the file-level comment in fractalize-core.js above
-   openFractal() for what's actually being rendered. */
+   z-index tier), and its content is a <canvas> too. See the file-level
+   comment in fractalize-core.js above openFractal() for what's actually
+   being rendered. */
 .image-fractal {
   position: fixed;
   inset: 0;
