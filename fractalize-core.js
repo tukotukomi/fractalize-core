@@ -794,11 +794,6 @@
     // photo -- 30% is a real fix baked into the default, not a neutral
     // starting point; the slider still runs 0-150% either direction.
     bgSaturationPct: 30,
-    // On by default -- see the "Avoid empty spaces" watchdog in frame()
-    // below. Off gives back the old, un-mitigated flat-space behavior
-    // for anyone who wants it (explicit user feedback: "even the effect
-    // of the flashing emptiness is beautiful" to some).
-    avoidEmptySpaces: true,
     // Camera roll queue -- src strings from the host's photo catalog
     // (see setPhotoCatalog below), persisted so a visitor's curated
     // queue survives reloads. Starts empty; openFractal auto-adds
@@ -823,12 +818,9 @@
     // runs on every cycle wrap, RANDOMIZE NOW, and Fractal-shape drag),
     // and drops the settings/camera-roll panels' backdrop-filter blur
     // (continuously recomputed over an animating full-bleed canvas --
-    // see resize()'s own comment on why that's expensive). On by
-    // default -- a real, visible quality tradeoff, but one weighted
-    // toward "works smoothly for most visitors out of the box" over
-    // "best possible look for visitors who never open the settings
-    // panel"; still one tap to turn off for anyone whose machine can
-    // afford full quality.
+    // see resize()'s own comment on why that's expensive). Always on --
+    // there is no panel toggle for it, and loadFractalSettings forces it
+    // true so an old saved false is ignored.
     lowPerformanceMode: true,
     // Music-driven options (Smooth mode only, all need live audio to have
     // any effect). Off by default so nothing changes for existing
@@ -859,7 +851,7 @@
     try {
       const raw = localStorage.getItem(FRACTAL_SETTINGS_KEY);
       const parsed = raw ? JSON.parse(raw) : {};
-      return Object.assign({}, FRACTAL_DEFAULTS, parsed);
+      return Object.assign({}, FRACTAL_DEFAULTS, parsed, { lowPerformanceMode: true });
     } catch (e) {
       return Object.assign({}, FRACTAL_DEFAULTS);
     }
@@ -1176,9 +1168,6 @@
       '<div class="fractal-cameraroll-grid" data-cameraroll-grid></div>' +
       "</div>" +
       '<div class="fractal-controls">' +
-      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
-      '<label><input type="checkbox" data-toggle="lowPerformanceMode"> Low performance mode</label>' +
-      "</div>" +
       '<div class="fractal-controls-randomizer">' +
       '<label class="fractal-controls-randomizer-toggle"><input type="checkbox" data-toggle="randomizerEnabled"> Randomizer</label>' +
       '<div class="fractal-controls-randomizer-timer" data-randomizer-timer role="group" aria-label="Randomizer timer">' +
@@ -1188,10 +1177,6 @@
       '<button type="button" class="fractal-controls-randomize-now" data-randomize-now>RANDOMIZE NOW</button>' +
       "</div>" +
       "</div>" +
-      '<div class="fractal-controls-row"><label>Music reactivity <span class="fractal-controls-value" data-value-for="musicReactivityPct"></span></label>' +
-      '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
-      '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
-      '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<input type="range" data-setting="fractalPower" min="2" max="6" step="1"></div>' +
       '<div class="fractal-controls-row"><label>Background saturation <span class="fractal-controls-value" data-value-for="bgSaturationPct"></span></label>' +
@@ -1211,10 +1196,8 @@
       '<label><input type="checkbox" data-toggle="colorSwellEnabled"> Color swell (brighter on loud passages)</label>' +
       "</div>" +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
-      '<label><input type="checkbox" data-toggle="avoidEmptySpaces"> Avoid empty spaces</label>' +
-      "</div>" +
-      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
-      '<label><input type="checkbox" data-toggle="growthEnabled"> Fractal growth</label>' +
+      '<label><input type="checkbox" data-toggle="growthEnabled"> Space strobe</label>' +
+      '<p class="fractal-controls-hint">This content contains flashing lights and patterns that may potentially trigger seizures for people with photosensitive epilepsy. Discretion is advised.</p>' +
       "</div>" +
       // Filter live audio section: sits at the very bottom of the panel
       // under its own divider.
@@ -1234,6 +1217,10 @@
       "</div>" +
       "</div>" +
       "</div>" +
+      '<div class="fractal-controls-row"><label>Music reactivity <span class="fractal-controls-value" data-value-for="musicReactivityPct"></span></label>' +
+      '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
+      '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
+      '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
       "</div>" +
       // Sits after both bottom sheets above in the DOM specifically so it
@@ -1537,7 +1524,7 @@
 
     panel.querySelector("[data-randomize-now]").addEventListener("click", randomizeFractalSettings);
 
-    ["avoidEmptySpaces", "growthEnabled","lowPerformanceMode", "speedSurgeEnabled", "shapeDriftEnabled", "colorSwellEnabled"].forEach((key) => {
+    ["growthEnabled", "speedSurgeEnabled", "shapeDriftEnabled", "colorSwellEnabled"].forEach((key) => {
       const toggle = panel.querySelector('[data-toggle="' + key + '"]');
       toggle.checked = fractalSettings[key];
       toggle.addEventListener("change", (e) => {
@@ -1545,22 +1532,9 @@
         saveFractalSettings(fractalSettings);
       });
     });
-
-    // Low performance mode has two extra effects beyond the plain
-    // setting flip above -- a CSS hook (see fractalize-core.css) that
-    // drops the panels' backdrop-filter blur, and an immediate re-
-    // resolution via activeResize (resize() itself already reads this
-    // setting, see openFractal, but nothing else re-triggers it the
-    // moment the checkbox changes -- no resize event, no panel-open
-    // transition). Applied once up front too, so a fractal opened with
-    // this already turned on (from a previous visit) starts correct
-    // rather than waiting for the first resize/panel toggle.
-    el.classList.toggle("low-performance", fractalSettings.lowPerformanceMode);
-    panel.querySelector('[data-toggle="lowPerformanceMode"]').addEventListener("change", (e) => {
-      el.classList.toggle("low-performance", e.target.checked);
-      if (activeResize) activeResize();
-    });
-
+    // Low performance mode is always on (no panel toggle); the CSS hook
+    // drops the panels' backdrop-filter blur.
+    el.classList.add("low-performance");
     wireLiveAudioControls(panel);
 
     el.querySelector(".image-fractal-close").addEventListener("click", closeFractal);
@@ -2334,7 +2308,7 @@
         // else: still waiting on the new image to finish loading -- the
         // crossfade starts the moment it's ready, checked again next frame.
       }
-      if (fractalSettings.avoidEmptySpaces) {
+      {
         if (escapeBoostStart !== null) {
           // Rises fast then HOLDS at peak boost for the rest of the dive,
           // rather than a symmetric bump that peaks once and immediately
@@ -2368,8 +2342,8 @@
         y: centerFrom.y + (centerTarget.y - centerFrom.y) * blend,
       };
 
-      // "Avoid empty spaces" watchdog (off entirely if the user unchecks
-      // the panel toggle, since some genuinely like the raw effect). A
+      // "Avoid empty spaces" watchdog (always on -- there is no longer
+      // a panel toggle for it). A
       // candidate is validated only *at the target*
       // injectFromImage picked -- the path to get there (or the current
       // cycle's own zoom sweep through it) isn't itself validated, and
@@ -2413,7 +2387,7 @@
       //      same mechanism/blend every normal cycle transition already
       //      uses, and by now imperceptible since zoom is already at the
       //      value that transition expects to start from.
-      if (!panelOpen && fractalSettings.avoidEmptySpaces) {
+      if (!panelOpen) {
         if (now - lastFlatCheck > 500) {
           lastFlatCheck = now;
           const liveScore = scoreJuliaView(cCurrent.x, cCurrent.y, centerCurrent.x, centerCurrent.y, power, [zoom], window.innerWidth / window.innerHeight);
