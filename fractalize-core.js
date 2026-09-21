@@ -851,7 +851,11 @@
     try {
       const raw = localStorage.getItem(FRACTAL_SETTINGS_KEY);
       const parsed = raw ? JSON.parse(raw) : {};
-      return Object.assign({}, FRACTAL_DEFAULTS, parsed, { lowPerformanceMode: true });
+      return Object.assign({}, FRACTAL_DEFAULTS, parsed, {
+        lowPerformanceMode: true,
+        // No slider anymore -- ignore any previously saved value.
+        bgSaturationPct: FRACTAL_DEFAULTS.bgSaturationPct,
+      });
     } catch (e) {
       return Object.assign({}, FRACTAL_DEFAULTS);
     }
@@ -1155,8 +1159,9 @@
     el.className = "image-fractal";
     el.innerHTML =
       '<canvas class="image-fractal-canvas"></canvas>' +
-      '<button type="button" class="image-fractal-close" aria-label="Close fractal view">&times;</button>' +
+      '<button type="button" class="image-fractal-close" aria-label="Close fractal view"><svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e3e3e3"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h280v80H200Zm440-160-55-58 102-102H360v-80h327L585-622l55-58 200 200-200 200Z"/></svg></button>' +
       '<div class="fractal-cameraroll">' +
+      '<button type="button" class="fractal-panel-close" aria-label="Close camera roll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18px" height="18px" fill="none" stroke="#e3e3e3" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>' +
       '<div class="fractal-cameraroll-header">' +
       '<label class="fractal-cameraroll-shuffle"><input type="checkbox" data-toggle="shuffleEnabled"> Enable shuffle</label>' +
       '<div class="fractal-shuffle-timer" data-shuffle-timer role="group" aria-label="Shuffle timer">' +
@@ -1168,6 +1173,7 @@
       '<div class="fractal-cameraroll-grid" data-cameraroll-grid></div>' +
       "</div>" +
       '<div class="fractal-controls">' +
+      '<button type="button" class="fractal-panel-close" aria-label="Close settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18px" height="18px" fill="none" stroke="#e3e3e3" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg></button>' +
       '<div class="fractal-controls-randomizer">' +
       '<label class="fractal-controls-randomizer-toggle"><input type="checkbox" data-toggle="randomizerEnabled"> Randomizer</label>' +
       '<div class="fractal-controls-randomizer-timer" data-randomizer-timer role="group" aria-label="Randomizer timer">' +
@@ -1179,13 +1185,12 @@
       "</div>" +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<input type="range" data-setting="fractalPower" min="2" max="6" step="1"></div>' +
-      '<div class="fractal-controls-row"><label>Background saturation <span class="fractal-controls-value" data-value-for="bgSaturationPct"></span></label>' +
-      '<input type="range" data-setting="bgSaturationPct" min="0" max="150" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Zoom depth <span class="fractal-controls-value" data-value-for="zoomDepth"></span></label>' +
       '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5"></div>' +
       '<div class="fractal-controls-row"><label>Base cycle length <span class="fractal-controls-value" data-value-for="cycleDurationSec"></span></label>' +
       '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
       '<p class="fractal-controls-hint">How long one zoom cycle lasts in calm moments. Speed surge shortens it while music plays.</p></div>' +
+      '<hr class="fractal-controls-divider">' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="speedSurgeEnabled"> Speed surge (music speeds up the cycle)</label>' +
       "</div>" +
@@ -1277,6 +1282,19 @@
       cameraRollPanel.classList.toggle("is-open");
       syncPanelOpenClass();
       if (cameraRollPanel.classList.contains("is-open")) populateCameraRollGrid();
+    });
+    // Corner X buttons, and a tap/click on the empty fractal canvas
+    // itself, both dismiss whichever sheet is open. The sheets, toolbar
+    // and close button are separate elements above the canvas, so only a
+    // tap on bare canvas reaches this listener.
+    function closePanels() {
+      panel.classList.remove("is-open");
+      cameraRollPanel.classList.remove("is-open");
+      syncPanelOpenClass();
+    }
+    el.querySelectorAll(".fractal-panel-close").forEach((btn) => btn.addEventListener("click", closePanels));
+    el.querySelector(".image-fractal-canvas").addEventListener("click", () => {
+      if (el.classList.contains("panel-open")) closePanels();
     });
 
     // Shuffle timer lives in this (buildFractal's own) closure, built
@@ -1413,7 +1431,6 @@
       musicReactivityPct: (v) => v + "%",
       reactivitySmoothingPct: (v) => v + "%",
       fractalPower: (v) => v + "-fold",
-      bgSaturationPct: (v) => v + "%",
       zoomDepth: (v) => v + "x",
       cycleDurationSec: (v) => v + "s",
     };
@@ -1455,7 +1472,7 @@
     // min/max/step -- reading those straight off each <input> rather
     // than duplicating the ranges here, so a future slider-range tweak
     // can't silently drift out of sync with what Randomizer picks from.
-    const RANDOMIZABLE_KEYS = ["fractalPower", "bgSaturationPct", "zoomDepth", "cycleDurationSec"];
+    const RANDOMIZABLE_KEYS = ["fractalPower", "zoomDepth", "cycleDurationSec"];
     function randomizeFractalSettings() {
       RANDOMIZABLE_KEYS.forEach((key) => {
         const input = panel.querySelector('[data-setting="' + key + '"]');

@@ -451,6 +451,32 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* Corner X on each bottom sheet. Sticky so it stays reachable while the
+   sheet's content scrolls; its own row (not overlaid) so it never covers
+   the first control. */
+.fractal-panel-close {
+  appearance: none;
+  -webkit-appearance: none;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -8px -12px 4px auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.fractal-panel-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .fractal-controls-divider {
   margin: 14px 0 10px;
   border: 0;
