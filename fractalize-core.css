@@ -451,6 +451,12 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+.fractal-controls-divider {
+  margin: 14px 0 10px;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
 .fractal-controls-hint {
   margin: 6px 0 0;
   font-size: 0.75rem;

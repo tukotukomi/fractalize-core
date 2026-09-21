@@ -757,13 +757,8 @@
   // advance, so it always reflects the *previous* push.
   const FRACTAL_VERSION = "vedc950b";
 
-  // Per-visitor settings. ogMode is read by both dive styles; every
-  // other key here only affects Smooth mode (see frame() below) -- OG
-  // Fractal stays deaf to all of them by design, so it keeps
-  // reproducing the exact original behavior no matter how these are
-  // tuned.
+  // Per-visitor settings.
   const FRACTAL_DEFAULTS = {
-    ogMode: false,
     // growthEnabled didn't exist in the fractal at all before this panel
     // -- its iteration-budget machinery was removed in an earlier revert
     // and never came back. Off is the accurate "current behavior"
@@ -1197,22 +1192,7 @@
       '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
-      '<div data-live-audio-panel>' +
-      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
-      '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
-      "</div>" +
-      '<div class="fractal-controls-row fractal-controls-audio-device" hidden>' +
-      '<div class="fractal-audio-device-col">' +
-      '<label>Input device</label>' +
-      '<select class="fractal-controls-select" data-audio-device></select>' +
-      '<p class="fractal-controls-audio-status" data-audio-status></p>' +
-      "</div>" +
-      '<div class="fractal-audio-meter-col">' +
-      '<canvas class="fractal-audio-waveform" data-audio-waveform width="200" height="58"></canvas>' +
-      "</div>" +
-      "</div>" +
-      "</div>" +
-      '<div class="fractal-controls-row"><label>Fractal shape <span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
+      '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<input type="range" data-setting="fractalPower" min="2" max="6" step="1"></div>' +
       '<div class="fractal-controls-row"><label>Background saturation <span class="fractal-controls-value" data-value-for="bgSaturationPct"></span></label>' +
       '<input type="range" data-setting="bgSaturationPct" min="0" max="150" step="5"></div>' +
@@ -1236,8 +1216,23 @@
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="growthEnabled"> Fractal growth</label>' +
       "</div>" +
+      // Filter live audio section: sits at the very bottom of the panel
+      // under its own divider.
+      '<hr class="fractal-controls-divider">' +
+      '<div data-live-audio-panel>' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
-      '<label><input type="checkbox" data-toggle="ogMode"> OG Fractal</label>' +
+      '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
+      "</div>" +
+      '<div class="fractal-controls-row fractal-controls-audio-device" hidden>' +
+      '<div class="fractal-audio-device-col">' +
+      '<label>Input device</label>' +
+      '<select class="fractal-controls-select" data-audio-device></select>' +
+      '<p class="fractal-controls-audio-status" data-audio-status></p>' +
+      "</div>" +
+      '<div class="fractal-audio-meter-col">' +
+      '<canvas class="fractal-audio-waveform" data-audio-waveform width="200" height="58"></canvas>' +
+      "</div>" +
+      "</div>" +
       "</div>" +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
       "</div>" +
@@ -1427,9 +1422,6 @@
       updateCameraRollBadges();
     }
 
-    // Sliders that OG Fractal deliberately ignores (see its own branch
-    // in frame() below) -- ogMode always reproduces the original
-    // behavior verbatim regardless of what these are set to.
     const FRACTAL_CONTROL_FORMATS = {
       musicReactivityPct: (v) => v + "%",
       reactivitySmoothingPct: (v) => v + "%",
@@ -1545,7 +1537,7 @@
 
     panel.querySelector("[data-randomize-now]").addEventListener("click", randomizeFractalSettings);
 
-    ["avoidEmptySpaces", "growthEnabled", "ogMode", "lowPerformanceMode", "speedSurgeEnabled", "shapeDriftEnabled", "colorSwellEnabled"].forEach((key) => {
+    ["avoidEmptySpaces", "growthEnabled","lowPerformanceMode", "speedSurgeEnabled", "shapeDriftEnabled", "colorSwellEnabled"].forEach((key) => {
       const toggle = panel.querySelector('[data-toggle="' + key + '"]');
       toggle.checked = fractalSettings[key];
       toggle.addEventListener("change", (e) => {
@@ -1698,9 +1690,9 @@
   // injectFromImage below) -- a handful of these per injection, every
   // few seconds, is trivial compared to doing it per-pixel on the GPU
   // every frame. power must match whatever uPower the shader is actually
-  // rendering with (fractalSettings.fractalPower, or 2 for OG Fractal --
-  // see frame()) -- scoring against the wrong exponent's shape would
-  // validate candidates for a fractal that isn't the one on screen.
+  // rendering with (fractalSettings.fractalPower, see frame()) -- scoring
+  // against the wrong exponent's shape would validate candidates for a
+  // fractal that isn't the one on screen.
   function juliaIterations(zx, zy, cx, cy, maxIter, power) {
     let iter = 0;
     while (iter < maxIter) {
@@ -1929,11 +1921,7 @@
       // choppy cycle-wrap/RANDOMIZE NOW/Fractal-shape-drag looks like.
       const MAX_ATTEMPTS = fractalSettings.lowPerformanceMode ? 75 : 150;
       const scoreZooms = fractalSettings.lowPerformanceMode ? SCORE_ZOOMS_LOW : SCORE_ZOOMS;
-      // OG Fractal always scores/renders at power 2, ignoring the
-      // "Fractal shape" slider -- matches its own "exact original
-      // behavior" invariant, same as every other Smooth-mode-only
-      // setting.
-      const scoringPower = fractalSettings.ogMode ? 2 : fractalSettings.fractalPower;
+      const scoringPower = fractalSettings.fractalPower;
       // Widescreen/ultrawide monitors render a much wider horizontal
       // slice of the complex plane than a square viewport would (see
       // scoreJuliaView's own comment) -- read fresh each injection
@@ -2200,9 +2188,7 @@
       const ZOOM_DIVE_BOOST_MAX = 3; // peak multiplier added on top of 1x, i.e. up to 4x zoom at the peak of the bump
       const DIVE_GRACE_MS = ZOOM_DIVE_RAMP_MS + 500; // grace period after the dive to see if it resolved things, before winding down
       const WIND_DOWN_MS = 1400; // duration of the ease-back-to-1x before skipping ahead to the next cycle
-      // Music envelope + dilated clock. Runs every frame in both modes
-      // (cheap), but OG Fractal only ever advances simClock 1:1 and
-      // ignores every gain below, so it stays deaf and verbatim.
+      // Music envelope + dilated clock, computed every frame (cheap).
       const dt = lastFrameNow ? Math.min(100, now - lastFrameNow) : 16;
       lastFrameNow = now;
       const rawBass = readLiveAudioBass();
@@ -2225,11 +2211,10 @@
         musicEnv += (norm - musicEnv) * (1 - Math.exp(-dt / tau));
       }
       const musicLevel = musicEnv * (fractalSettings.musicReactivityPct / 100);
-      const smoothMode = !fractalSettings.ogMode;
       const easeGain = (gain, on) => gain + ((on ? 1 : 0) - gain) * (1 - Math.exp(-dt / 800));
-      surgeGain = easeGain(surgeGain, smoothMode && fractalSettings.speedSurgeEnabled);
-      driftGain = easeGain(driftGain, smoothMode && fractalSettings.shapeDriftEnabled);
-      swellGain = easeGain(swellGain, smoothMode && fractalSettings.colorSwellEnabled);
+      surgeGain = easeGain(surgeGain, fractalSettings.speedSurgeEnabled);
+      driftGain = easeGain(driftGain, fractalSettings.shapeDriftEnabled);
+      swellGain = easeGain(swellGain, fractalSettings.colorSwellEnabled);
       // Speed surge: the cycle clock runs up to 2.5x faster at full
       // music energy, so cycleDurationSec is the calm-state (maximum)
       // length. Rate is a smoothed envelope, and it scales how fast time
@@ -2242,17 +2227,7 @@
       // per-frame cost across the whole canvas, so it's one of the most
       // direct levers on frame rate a slower GPU actually has.
       let maxIter = fractalSettings.lowPerformanceMode ? 60 : 120;
-      if (fractalSettings.ogMode) {
-        // Exactly the original behavior: one 6s cycle, zoom climbs
-        // 1 -> 7 across the whole thing, then wraps straight back --
-        // preserved verbatim as a selectable option, deaf to every
-        // slider below (they all live on fractalSettings, but nothing
-        // in this branch reads them).
-        const cyclePhase = ((simClock - startTime) % MANDELBROT_CYCLE_MS) / MANDELBROT_CYCLE_MS;
-        if (cyclePhase < lastCyclePhase) injectFromImage(now);
-        lastCyclePhase = cyclePhase;
-        zoom = 1 + Math.pow(cyclePhase, 1.5) * 6;
-      } else {
+      {
         // No static "hold" at the ceiling -- that's exactly what froze
         // for ~15s of every 20s cycle (zoom pinned at 7 *and* no
         // injection running, since the previous version only injected
@@ -2359,7 +2334,7 @@
         // else: still waiting on the new image to finish loading -- the
         // crossfade starts the moment it's ready, checked again next frame.
       }
-      if (fractalSettings.avoidEmptySpaces && !fractalSettings.ogMode) {
+      if (fractalSettings.avoidEmptySpaces) {
         if (escapeBoostStart !== null) {
           // Rises fast then HOLDS at peak boost for the rest of the dive,
           // rather than a symmetric bump that peaks once and immediately
@@ -2382,14 +2357,9 @@
         }
       }
       // Read live every frame (not captured once) so dragging the
-      // "Fractal shape" slider takes effect immediately -- OG Fractal
-      // always renders (and, via scoringPower in injectFromImage, always
-      // scores candidates) at power 2, matching its own verbatim
-      // invariant.
-      const power = fractalSettings.ogMode ? 2 : fractalSettings.fractalPower;
-      // 1.0 for OG Fractal (its own original, unadjusted background) --
-      // same verbatim-invariant pattern as power above.
-      const bgSaturation = fractalSettings.ogMode ? 1.0 : fractalSettings.bgSaturationPct / 100;
+      // "Fractal shape" slider takes effect immediately.
+      const power = fractalSettings.fractalPower;
+      const bgSaturation = fractalSettings.bgSaturationPct / 100;
 
       const blend = Math.min(1, (simClock - injectStart) / injectBlendMs);
       cCurrent = { x: cFrom.x + (cTarget.x - cFrom.x) * blend, y: cFrom.y + (cTarget.y - cFrom.y) * blend };
@@ -2398,10 +2368,9 @@
         y: centerFrom.y + (centerTarget.y - centerFrom.y) * blend,
       };
 
-      // "Avoid empty spaces" watchdog (Smooth mode only -- OG Fractal is
-      // untouched, per its verbatim invariant; also off entirely if the
-      // user unchecks the panel toggle, since some genuinely like the
-      // raw effect). A candidate is validated only *at the target*
+      // "Avoid empty spaces" watchdog (off entirely if the user unchecks
+      // the panel toggle, since some genuinely like the raw effect). A
+      // candidate is validated only *at the target*
       // injectFromImage picked -- the path to get there (or the current
       // cycle's own zoom sweep through it) isn't itself validated, and
       // complex parameter space isn't convex, so even a good candidate
@@ -2444,7 +2413,7 @@
       //      same mechanism/blend every normal cycle transition already
       //      uses, and by now imperceptible since zoom is already at the
       //      value that transition expects to start from.
-      if (!panelOpen && fractalSettings.avoidEmptySpaces && !fractalSettings.ogMode) {
+      if (!panelOpen && fractalSettings.avoidEmptySpaces) {
         if (now - lastFlatCheck > 500) {
           lastFlatCheck = now;
           const liveScore = scoreJuliaView(cCurrent.x, cCurrent.y, centerCurrent.x, centerCurrent.y, power, [zoom], window.innerWidth / window.innerHeight);
