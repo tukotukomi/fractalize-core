@@ -129,6 +129,22 @@
     return sum / liveAudioDataArray.length / 255;
   }
 
+  // Low end only (bins 0-2 of the 128-bin spectrum, roughly 0-560 Hz at a
+  // 48 kHz context) -- kick/bass/low-synth energy, the part of music a
+  // listener actually feels as its pulse. The mean-of-everything reading
+  // above is dominated by whatever's loud in the mids/highs (vocals, hats)
+  // and reads as noise rather than beat. Frame code below turns this raw
+  // reading into a steady 0-1 envelope (see the "music envelope" block in
+  // the fractal's frame()).
+  function readLiveAudioBass() {
+    if (!liveAudioAnalyser) return null;
+    liveAudioAnalyser.getByteFrequencyData(liveAudioDataArray);
+    const n = Math.min(3, liveAudioDataArray.length);
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += liveAudioDataArray[i];
+    return sum / n / 255;
+  }
+
   function stopLiveAudioStream() {
     if (liveAudioStream) liveAudioStream.getTracks().forEach((t) => t.stop());
     liveAudioStream = null;
@@ -739,7 +755,7 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "v873f2f9";
+  const FRACTAL_VERSION = "vedc950b";
 
   // Per-visitor settings. ogMode is read by both dive styles; every
   // other key here only affects Smooth mode (see frame() below) -- OG
@@ -819,6 +835,15 @@
     // panel"; still one tap to turn off for anyone whose machine can
     // afford full quality.
     lowPerformanceMode: true,
+    // Music-driven options (Smooth mode only, all need live audio to have
+    // any effect). Off by default so nothing changes for existing
+    // visitors until they opt in. speedSurge speeds the cycle clock up
+    // with the music (cycleDurationSec becomes the calm-state length),
+    // shapeDrift slowly wanders the shape's c parameter with the music's
+    // energy, colorSwell lifts brightness/saturation on loud passages.
+    speedSurgeEnabled: false,
+    shapeDriftEnabled: false,
+    colorSwellEnabled: false,
   };
   const FRACTAL_SETTINGS_KEY = "tuckerMillsFractalSettings";
   // Pill choices for the camera roll's shuffle timer -- deliberately not
@@ -862,6 +887,7 @@
     "uniform vec2 uC;\n" +
     "uniform vec2 uCenter;\n" +
     "uniform vec3 uBaseColor;\n" +
+    "uniform float uSwell;\n" +
     "uniform sampler2D uImage;\n" +
     // A second photo texture + a sweep progress value (roughly -0.3 to
     // 1.3, see requestImageSwitch/frame() in openFractal), sampled at
@@ -939,6 +965,15 @@
     // the incoming photo visibly grows outward from the fractal's own
     // most intricate structure toward the background over the course of
     // the transition, instead of the whole screen fading in unison.
+    // Music-driven brightness/saturation lift on detail pixels (0 = off,
+    // eased in JS so toggling never snaps) -- applied after boostDetail,
+    // on texColor only, so the flat background is untouched.
+    "vec3 swell(vec3 c) {\n" +
+    "  vec3 hsv = rgb2hsv(c);\n" +
+    "  hsv.y = clamp(hsv.y * (1.0 + 0.2 * uSwell), 0.0, 1.0);\n" +
+    "  hsv.z = clamp(hsv.z * (1.0 + 0.3 * uSwell), 0.0, 1.0);\n" +
+    "  return hsv2rgb(hsv);\n" +
+    "}\n" +
     "vec3 sampleImage(vec2 uv, float t) {\n" +
     "  float band = 0.3;\n" +
     "  float pixelThreshold = 1.0 - t;\n" +
@@ -978,7 +1013,7 @@
     // Interior points (never escaped) are the fractal's own deepest,
     // most detailed structure -- always t=1.0, so this is where an
     // incoming photo reveals first during a crossfade.
-    "    vec3 texColor = boostDetail(sampleImage(fract(z * 0.5 + 0.5), 1.0));\n" +
+    "    vec3 texColor = swell(boostDetail(sampleImage(fract(z * 0.5 + 0.5), 1.0)));\n" +
     "    gl_FragColor = vec4(texColor, 1.0);\n" +
     "  } else {\n" +
     // A steeper curve than sqrt (which is pow(x, 0.5)) -- iter/uMaxIter
@@ -991,7 +1026,7 @@
     // meant to touch -- this is the fix for that, boostDetail alone
     // couldn't compensate for dilution happening after it runs.
     "    float t = pow(iter / uMaxIter, 0.3);\n" +
-    "    vec3 texColor = boostDetail(sampleImage(fract(z * 0.2 + 0.5), t));\n" +
+    "    vec3 texColor = swell(boostDetail(sampleImage(fract(z * 0.2 + 0.5), t)));\n" +
     // uBaseColor itself stays exactly the photo-average value set once
     // in openFractal -- this only scales its *saturation* (hue/value
     // untouched), live-adjustable via the "Background saturation"
@@ -1183,8 +1218,18 @@
       '<input type="range" data-setting="bgSaturationPct" min="0" max="150" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Zoom depth <span class="fractal-controls-value" data-value-for="zoomDepth"></span></label>' +
       '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5"></div>' +
-      '<div class="fractal-controls-row"><label>Cycle duration <span class="fractal-controls-value" data-value-for="cycleDurationSec"></span></label>' +
-      '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1"></div>' +
+      '<div class="fractal-controls-row"><label>Base cycle length <span class="fractal-controls-value" data-value-for="cycleDurationSec"></span></label>' +
+      '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
+      '<p class="fractal-controls-hint">How long one zoom cycle lasts in calm moments. Speed surge shortens it while music plays.</p></div>' +
+      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
+      '<label><input type="checkbox" data-toggle="speedSurgeEnabled"> Speed surge (music speeds up the cycle)</label>' +
+      "</div>" +
+      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
+      '<label><input type="checkbox" data-toggle="shapeDriftEnabled"> Shape drift (slow, music-paced)</label>' +
+      "</div>" +
+      '<div class="fractal-controls-row fractal-controls-toggle-row">' +
+      '<label><input type="checkbox" data-toggle="colorSwellEnabled"> Color swell (brighter on loud passages)</label>' +
+      "</div>" +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="avoidEmptySpaces"> Avoid empty spaces</label>' +
       "</div>" +
@@ -1500,7 +1545,7 @@
 
     panel.querySelector("[data-randomize-now]").addEventListener("click", randomizeFractalSettings);
 
-    ["avoidEmptySpaces", "growthEnabled", "ogMode", "lowPerformanceMode"].forEach((key) => {
+    ["avoidEmptySpaces", "growthEnabled", "ogMode", "lowPerformanceMode", "speedSurgeEnabled", "shapeDriftEnabled", "colorSwellEnabled"].forEach((key) => {
       const toggle = panel.querySelector('[data-toggle="' + key + '"]');
       toggle.checked = fractalSettings[key];
       toggle.addEventListener("change", (e) => {
@@ -1564,6 +1609,7 @@
         c: gl.getUniformLocation(program, "uC"),
         center: gl.getUniformLocation(program, "uCenter"),
         baseColor: gl.getUniformLocation(program, "uBaseColor"),
+        swell: gl.getUniformLocation(program, "uSwell"),
         image: gl.getUniformLocation(program, "uImage"),
         imageNext: gl.getUniformLocation(program, "uImageNext"),
         imageBlend: gl.getUniformLocation(program, "uImageBlend"),
@@ -1816,6 +1862,10 @@
     let centerCurrent = { x: 0.15, y: 0.2 };
     let centerTarget = { x: 0.15, y: 0.2 };
     let centerFrom = { x: 0.15, y: 0.2 };
+    // Dilated animation clock (ms) that drives the cycle phase and the
+    // c/center blend; advances 1:1 with wall-clock time unless Speed
+    // surge is on and music is playing. See frame().
+    let simClock = 0;
     let injectStart = 0;
     // Spans almost the whole cycle (not a short blend that then sits
     // frozen while only zoom keeps changing) so c/center are always
@@ -1968,7 +2018,11 @@
       cTarget = best.c;
       centerFrom = centerCurrent;
       centerTarget = best.center;
-      injectStart = now;
+      // Sim time, not the caller's wall-clock `now` -- the c/center blend
+      // has to share the (possibly speed-surged) cycle clock so it stays
+      // in step with the zoom cycle it belongs to. Every caller's `now`
+      // argument is ignored on purpose.
+      injectStart = simClock;
       injectBlendMs = blendMs || INJECT_BLEND_MS;
       hasValidAnchor = true;
     }
@@ -1977,8 +2031,8 @@
     // let, not const: the "Avoid empty spaces" watchdog's fallback tier
     // fast-forwards this to skip ahead to the next cycle rather than
     // doing a side-channel re-injection -- see that block in frame().
-    let startTime = performance.now();
-    injectFromImage(startTime);
+    let startTime = 0; // in simClock time
+    injectFromImage(performance.now());
     // The hardcoded {0.3, 0.4} default above isn't photo-derived or
     // scored -- it's just a starting point for cFrom/centerFrom to blend
     // away from. Blending the first cycle away from it wasted the
@@ -1997,7 +2051,20 @@
     // comment and the smoothing math in frame() below) -- starts at 0
     // rather than whatever a previous session left off at, so a fresh
     // open never opens mid-swing on a stale value.
-    let smoothedPulse = 0;
+    // Music envelope state (see frame()): follows the bass reading with a
+    // fast attack / slow release, auto-scaled between a slowly-decaying
+    // floor and ceiling so quiet and loud sources both use the full 0-1
+    // range. Feature gains ease toward their target (never snap) so
+    // toggling a feature or the music stopping fades rather than jumps.
+    let musicEnv = 0;
+    let envFloor = 0;
+    let envCeil = 0.25;
+    let lastFrameNow = 0;
+    let surgeGain = 0;
+    let driftGain = 0;
+    let swellGain = 0;
+    let driftT = 0;
+    let swellLevel = 0;
     // "Avoid empty spaces" watchdog state (Smooth mode only) -- see its
     // check in frame() below for why this exists alongside
     // MIN_SCORE-validated injection rather than instead of it.
@@ -2133,6 +2200,43 @@
       const ZOOM_DIVE_BOOST_MAX = 3; // peak multiplier added on top of 1x, i.e. up to 4x zoom at the peak of the bump
       const DIVE_GRACE_MS = ZOOM_DIVE_RAMP_MS + 500; // grace period after the dive to see if it resolved things, before winding down
       const WIND_DOWN_MS = 1400; // duration of the ease-back-to-1x before skipping ahead to the next cycle
+      // Music envelope + dilated clock. Runs every frame in both modes
+      // (cheap), but OG Fractal only ever advances simClock 1:1 and
+      // ignores every gain below, so it stays deaf and verbatim.
+      const dt = lastFrameNow ? Math.min(100, now - lastFrameNow) : 16;
+      lastFrameNow = now;
+      const rawBass = readLiveAudioBass();
+      if (rawBass === null) {
+        // No live audio: hold the auto-gain range, let the envelope fall.
+        musicEnv += (0 - musicEnv) * (1 - Math.exp(-dt / 600));
+      } else {
+        // Auto-gain: ceiling snaps up to new peaks and relaxes slowly
+        // toward a minimum span; floor mirrors it downward -- so quiet
+        // and loud sources both spread across 0-1.
+        if (rawBass > envCeil) envCeil = rawBass;
+        else envCeil += (Math.max(rawBass, 0.12) - envCeil) * (1 - Math.exp(-dt / 8000));
+        if (rawBass < envFloor) envFloor = rawBass;
+        else envFloor += (rawBass - envFloor) * (1 - Math.exp(-dt / 8000));
+        const norm = Math.max(0, Math.min(1, (rawBass - envFloor) / Math.max(0.1, envCeil - envFloor)));
+        // Fast attack, slow release (the smoothing slider stretches the
+        // release) -- rises with the beat, then glides back down instead
+        // of flickering with every frame's reading.
+        const tau = norm > musicEnv ? 80 : 300 + fractalSettings.reactivitySmoothingPct * 12;
+        musicEnv += (norm - musicEnv) * (1 - Math.exp(-dt / tau));
+      }
+      const musicLevel = musicEnv * (fractalSettings.musicReactivityPct / 100);
+      const smoothMode = !fractalSettings.ogMode;
+      const easeGain = (gain, on) => gain + ((on ? 1 : 0) - gain) * (1 - Math.exp(-dt / 800));
+      surgeGain = easeGain(surgeGain, smoothMode && fractalSettings.speedSurgeEnabled);
+      driftGain = easeGain(driftGain, smoothMode && fractalSettings.shapeDriftEnabled);
+      swellGain = easeGain(swellGain, smoothMode && fractalSettings.colorSwellEnabled);
+      // Speed surge: the cycle clock runs up to 2.5x faster at full
+      // music energy, so cycleDurationSec is the calm-state (maximum)
+      // length. Rate is a smoothed envelope, and it scales how fast time
+      // passes rather than where the zoom is, so it can't jump.
+      simClock += dt * (1 + 1.5 * musicLevel * surgeGain);
+      driftT += (dt / 1000) * (0.3 + 1.2 * musicLevel) * driftGain;
+      swellLevel += (musicLevel * swellGain - swellLevel) * (1 - Math.exp(-dt / 250));
       let zoom;
       // Halved under low performance mode -- this is a per-pixel,
       // per-frame cost across the whole canvas, so it's one of the most
@@ -2144,7 +2248,7 @@
         // preserved verbatim as a selectable option, deaf to every
         // slider below (they all live on fractalSettings, but nothing
         // in this branch reads them).
-        const cyclePhase = ((now - startTime) % MANDELBROT_CYCLE_MS) / MANDELBROT_CYCLE_MS;
+        const cyclePhase = ((simClock - startTime) % MANDELBROT_CYCLE_MS) / MANDELBROT_CYCLE_MS;
         if (cyclePhase < lastCyclePhase) injectFromImage(now);
         lastCyclePhase = cyclePhase;
         zoom = 1 + Math.pow(cyclePhase, 1.5) * 6;
@@ -2174,35 +2278,20 @@
         // keeps the blend path itself validated enough to make a long,
         // continuous drift viable again.
         const cycleDurationMs = fractalSettings.cycleDurationSec * 1000;
-        // Reactivity smoothing: an exponential moving average over the
-        // raw analyser reading, same idea as a VU meter's ballistics --
-        // 0% retains none of the previous frame (identical to the
-        // original un-smoothed behavior), higher values blend in more of
-        // it each frame, turning an instant, jittery reading into a
-        // slower, steadier rise and fall. 0.95 as the retain ceiling
-        // (not 1.0) so even "100%" still tracks a sustained volume
-        // change within roughly a second rather than never actually
-        // catching up.
-        const retain = (fractalSettings.reactivitySmoothingPct / 100) * 0.95;
-        smoothedPulse += (computePulse() - smoothedPulse) * (1 - retain);
-        const pulse = smoothedPulse;
-
-        const cyclePhase = ((now - startTime) % cycleDurationMs) / cycleDurationMs;
+        const cyclePhase = ((simClock - startTime) % cycleDurationMs) / cycleDurationMs;
         if (cyclePhase < lastCyclePhase) injectFromImage(now, cycleDurationMs * 0.98);
         lastCyclePhase = cyclePhase;
 
         const distFromWrap = Math.min(cyclePhase, 1 - cyclePhase); // 0 at the wrap, 0.5 at the cycle's midpoint (peak zoom)
         const morphPhase = distFromWrap * 2; // 0 at the wrap, 1 at the midpoint
-        // 1.5 is the same fixed exponent OG Fractal itself uses --
-        // reactivity=0 (the default, matching "this didn't exist
-        // before") leaves it exactly there; higher reactivity lets the
-        // music pulse wobble it, speeding up/easing off how eagerly
-        // the dive accelerates.
-        const diveExponent = 1.5 + pulse * (fractalSettings.musicReactivityPct / 100) * 0.6;
-        zoom = 1 + Math.pow(morphPhase, diveExponent) * (fractalSettings.zoomDepth - 1);
+        // Fixed 1.5 exponent, same as OG Fractal. Music no longer bends
+        // this curve directly (that made loud passages read as zoom
+        // jitter); it affects how fast time runs instead, see Speed
+        // surge above.
+        zoom = 1 + Math.pow(morphPhase, 1.5) * (fractalSettings.zoomDepth - 1);
 
         if (fractalSettings.growthEnabled) {
-          maxIter = fractalSettings.lowPerformanceMode ? 50 + pulse * 25 : 100 + pulse * 50;
+          maxIter = fractalSettings.lowPerformanceMode ? 50 + musicLevel * 25 : 100 + musicLevel * 50;
         }
       }
       // Escape-dive zoom boost, applied every frame (not just on the
@@ -2302,7 +2391,7 @@
       // same verbatim-invariant pattern as power above.
       const bgSaturation = fractalSettings.ogMode ? 1.0 : fractalSettings.bgSaturationPct / 100;
 
-      const blend = Math.min(1, (now - injectStart) / injectBlendMs);
+      const blend = Math.min(1, (simClock - injectStart) / injectBlendMs);
       cCurrent = { x: cFrom.x + (cTarget.x - cFrom.x) * blend, y: cFrom.y + (cTarget.y - cFrom.y) * blend };
       centerCurrent = {
         x: centerFrom.x + (centerTarget.x - centerFrom.x) * blend,
@@ -2363,7 +2452,7 @@
             if (flatSince === null) flatSince = now;
             if (windDownStart !== null) {
               if (now - windDownStart > WIND_DOWN_MS) {
-                startTime = now;
+                startTime = simClock;
                 windDownStart = null;
                 flatSince = null;
               }
@@ -2404,7 +2493,16 @@
 
       gl.uniform2f(fractalUniforms.resolution, fractalCanvasEl.width, fractalCanvasEl.height);
       gl.uniform1f(fractalUniforms.zoom, zoom);
-      gl.uniform2f(fractalUniforms.c, cCurrent.x, cCurrent.y);
+      // Shape drift: a small wander added at upload time only (scoring/
+      // watchdog above keep using the validated cCurrent). Fixed small
+      // amplitude; music only changes how fast it wanders.
+      const driftAmp = 0.012 * driftGain;
+      gl.uniform2f(
+        fractalUniforms.c,
+        cCurrent.x + Math.sin(driftT) * driftAmp,
+        cCurrent.y + Math.cos(driftT * 0.83) * driftAmp
+      );
+      gl.uniform1f(fractalUniforms.swell, swellLevel);
       gl.uniform2f(fractalUniforms.center, centerCurrent.x, centerCurrent.y);
       gl.uniform3f(fractalUniforms.baseColor, effAvg.r * 0.55, effAvg.g * 0.55, effAvg.b * 0.55);
       gl.uniform1f(fractalUniforms.maxIter, maxIter);

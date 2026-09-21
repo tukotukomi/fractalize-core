@@ -451,6 +451,13 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+.fractal-controls-hint {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 /* Same slide-up glass sheet as .fractal-controls -- a second, mutually
    exclusive bottom sheet (see buildFractal's toggle wiring) rather than
    a second visual language, so the two panels read as one family. */
