@@ -438,6 +438,314 @@
     return readLiveAudioPulse() || 0;
   }
 
+  // --- Phone remote (host side) -----------------------------------------
+  // Lets a phone control the fractal's settings panel and camera roll. The
+  // desktop ("host") shows a QR code linking to the host page's own remote
+  // page (see setRemoteRelay) with a random room id; the phone opens it
+  // and both sides connect out to a small WebSocket relay (a Cloudflare
+  // Worker, see fractalize-studio's relay/ folder) that just forwards
+  // messages between the two -- so it works across any network, including
+  // venue wifi that isolates devices from each other. No audio or photos
+  // ever go through the relay, only small JSON control messages.
+  //
+  // Safety: the host must approve each new phone before any of its
+  // commands are applied, commands are limited to a whitelist (see
+  // buildFractal's remoteApi -- live audio can NOT be toggled remotely),
+  // and photo requests must match the host's own catalog.
+  //
+  // Off entirely unless a host page calls setRemoteRelay -- tuckermills.com
+  // never does, so none of this UI appears there.
+  let remoteConfig = null; // { relayUrl, remotePageUrl } once configured
+  // Set by buildFractal: { getState(), apply(cmd) } -- closes over the
+  // panel/camera roll it needs. Null until the fractal has been built.
+  let remoteApi = null;
+  // Set by buildFractal: refreshes the settings panel's own "phone
+  // remote" button/modal whenever status changes.
+  let remoteUiRefresh = null;
+  const remote = {
+    ws: null,
+    room: null,
+    status: "off", // off | waiting | pending | connected
+    approvedCid: null, // the one phone id (from its "hello") allowed to control
+    pendingCid: null,
+    approved: false, // is the currently connected phone the approved one
+    wantOpen: false, // false = we closed it on purpose, don't reconnect
+    retry: 0,
+    pingTimer: null,
+    stateTimer: null,
+    reconnectTimer: null,
+  };
+
+  function remoteRandomId() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    let s = "";
+    bytes.forEach((b) => (s += String.fromCharCode(b)));
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function remoteLink() {
+    if (!remoteConfig || !remote.room) return "";
+    return remoteConfig.remotePageUrl + "#" + remote.room;
+  }
+
+  function remoteSetStatus(status) {
+    remote.status = status;
+    if (remoteUiRefresh) remoteUiRefresh();
+  }
+
+  function remoteSend(obj) {
+    if (remote.ws && remote.ws.readyState === 1) remote.ws.send(JSON.stringify(obj));
+  }
+
+  // Debounced -- a slider drag or shuffle tick can fire many change
+  // events in a row, but the phone only needs the latest picture.
+  function remoteNotifyState() {
+    if (!remote.approved || !remoteApi) return;
+    clearTimeout(remote.stateTimer);
+    remote.stateTimer = setTimeout(() => {
+      if (remote.approved && remoteApi) remoteSend({ t: "state", state: remoteApi.getState() });
+    }, 120);
+  }
+
+  function remoteAccept() {
+    remote.approvedCid = remote.pendingCid;
+    remote.pendingCid = null;
+    remote.approved = true;
+    remoteSetStatus("connected");
+    remoteSend({ t: "accepted" });
+    if (remoteApi) remoteSend({ t: "state", state: remoteApi.getState() });
+  }
+
+  function remoteDeny() {
+    remoteSend({ t: "denied" });
+    remote.pendingCid = null;
+    remote.approved = false;
+    remoteSetStatus("waiting");
+  }
+
+  function remoteHandleMessage(raw) {
+    if (typeof raw !== "string" || raw.length > 4096) return;
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch (e) {
+      return;
+    }
+    if (!msg || typeof msg.t !== "string") return;
+    if (msg.t === "sys") {
+      if (msg.ev === "welcome" && msg.peer) remoteSend({ t: "who" });
+      else if (msg.ev === "peer-left" && msg.role === "remote") {
+        remote.approved = false;
+        remote.pendingCid = null;
+        remoteSetStatus("waiting");
+      }
+      return;
+    }
+    if (msg.t === "hello") {
+      const cid = String(msg.cid || "").slice(0, 64);
+      if (!cid) return;
+      remote.pendingCid = cid;
+      if (cid === remote.approvedCid) remoteAccept();
+      else {
+        remote.approved = false;
+        remoteSetStatus("pending");
+      }
+      return;
+    }
+    // Everything else is a command -- only from the approved phone.
+    if (!remote.approved || !remoteApi) return;
+    remoteApi.apply(msg);
+  }
+
+  function remoteConnect() {
+    if (!remoteConfig || !remote.room || !remote.wantOpen) return;
+    let ws;
+    try {
+      ws = new WebSocket(remoteConfig.relayUrl.replace(/\/$/, "") + "/room/" + remote.room + "?role=host");
+    } catch (e) {
+      return;
+    }
+    remote.ws = ws;
+    ws.onopen = () => {
+      remote.retry = 0;
+      clearInterval(remote.pingTimer);
+      remote.pingTimer = setInterval(() => {
+        if (ws.readyState === 1) ws.send("ping");
+      }, 25000);
+    };
+    ws.onmessage = (e) => remoteHandleMessage(e.data);
+    ws.onclose = () => {
+      clearInterval(remote.pingTimer);
+      if (remote.ws === ws) remote.ws = null;
+      if (!remote.wantOpen) return;
+      // Dropped unexpectedly -- try again with a growing delay. The phone
+      // re-announces itself when we rejoin, and (if it was already
+      // approved) is accepted again without another prompt.
+      remote.approved = false;
+      if (remote.status === "connected") remoteSetStatus("waiting");
+      clearTimeout(remote.reconnectTimer);
+      remote.reconnectTimer = setTimeout(remoteConnect, Math.min(15000, 1000 * Math.pow(2, remote.retry++)));
+    };
+    ws.onerror = () => {};
+  }
+
+  function remoteStart() {
+    if (!remoteConfig) return;
+    if (remote.wantOpen) return;
+    remote.wantOpen = true;
+    remote.room = remoteRandomId();
+    remote.approvedCid = null;
+    remote.pendingCid = null;
+    remote.approved = false;
+    remote.retry = 0;
+    remoteSetStatus("waiting");
+    remoteConnect();
+  }
+
+  function remoteStop() {
+    remote.wantOpen = false;
+    clearTimeout(remote.reconnectTimer);
+    clearTimeout(remote.stateTimer);
+    clearInterval(remote.pingTimer);
+    if (remote.ws) {
+      try {
+        remoteSend({ t: "bye" });
+        remote.ws.close();
+      } catch (e) {}
+      remote.ws = null;
+    }
+    remote.room = null;
+    remote.approved = false;
+    remote.approvedCid = null;
+    remote.pendingCid = null;
+    remoteSetStatus("off");
+  }
+
+  // The QR library is only fetched the first time a QR is actually shown.
+  // Resolved relative to this script's own location so it works wherever
+  // a host page serves the fractalize-core folder from.
+  const CORE_SCRIPT_URL = document.currentScript ? document.currentScript.src : "";
+  let qrLibPromise = null;
+  function loadQrLib() {
+    if (window.qrcode) return Promise.resolve(window.qrcode);
+    if (!qrLibPromise) {
+      qrLibPromise = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = CORE_SCRIPT_URL.replace(/fractalize-core\.js(\?.*)?$/, "vendor/qrcode.js$1");
+        s.onload = () => resolve(window.qrcode);
+        s.onerror = () => {
+          qrLibPromise = null;
+          reject(new Error("QR library failed to load"));
+        };
+        document.head.appendChild(s);
+      });
+    }
+    return qrLibPromise;
+  }
+
+  // Builds the "control from your phone" modal inside the fractal overlay
+  // and returns { open, refresh, buttonLabel }. All state comes from the
+  // shared `remote` object above.
+  function buildRemoteModal(parentEl) {
+    const modal = document.createElement("div");
+    modal.className = "fractal-remote-modal";
+    modal.hidden = true;
+    modal.innerHTML =
+      '<div class="fractal-remote-card" role="dialog" aria-label="Control from your phone">' +
+      '<button type="button" class="fractal-panel-close" data-remote-close aria-label="Close">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18px" height="18px" fill="none" stroke="#e3e3e3" stroke-width="2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>' +
+      "</button>" +
+      '<h3 class="fractal-remote-title">Control from your phone</h3>' +
+      '<div class="fractal-remote-qr" data-remote-qr></div>' +
+      '<p class="fractal-remote-text" data-remote-text></p>' +
+      '<div class="fractal-remote-actions" data-remote-actions></div>' +
+      "</div>";
+    parentEl.appendChild(modal);
+    const qrEl = modal.querySelector("[data-remote-qr]");
+    const textEl = modal.querySelector("[data-remote-text]");
+    const actionsEl = modal.querySelector("[data-remote-actions]");
+    let renderedLink = "";
+
+    function addAction(label, onClick, secondary) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "fractal-remote-action" + (secondary ? " is-secondary" : "");
+      b.textContent = label;
+      b.addEventListener("click", onClick);
+      actionsEl.appendChild(b);
+    }
+
+    function close() {
+      modal.hidden = true;
+    }
+
+    function refresh() {
+      actionsEl.innerHTML = "";
+      const link = remoteLink();
+      const showQr = remote.status === "waiting" && link;
+      qrEl.hidden = !showQr;
+      if (showQr && renderedLink !== link) {
+        renderedLink = link;
+        qrEl.innerHTML = "";
+        loadQrLib()
+          .then((qrcode) => {
+            if (renderedLink !== link) return;
+            const qr = qrcode(0, "M");
+            qr.addData(link);
+            qr.make();
+            qrEl.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 3, scalable: true });
+          })
+          .catch(() => {
+            qrEl.textContent = "Couldn't load the QR code. Open this link on your phone: " + link;
+          });
+      }
+      if (remote.status === "waiting") {
+        textEl.textContent = remote.approvedCid
+          ? "Phone disconnected. Scan again, or just reopen the page on your phone."
+          : "Scan this with your phone's camera to control the filters and camera roll. You'll approve the phone here first.";
+        addAction("Copy link", () => {
+          if (navigator.clipboard) navigator.clipboard.writeText(link).catch(() => {});
+        }, true);
+        addAction("Stop", () => {
+          remoteStop();
+          close();
+        }, true);
+      } else if (remote.status === "pending") {
+        textEl.textContent = "A phone wants to connect. Only allow it if it's yours.";
+        addAction("Allow", remoteAccept);
+        addAction("Deny", remoteDeny, true);
+      } else if (remote.status === "connected") {
+        textEl.textContent = "Phone connected. Filters and camera roll are now controllable from it.";
+        addAction("Done", close);
+        addAction("Disconnect", () => {
+          remoteStop();
+          close();
+        }, true);
+      } else {
+        textEl.textContent = "";
+      }
+      // A phone asking to connect always surfaces the modal -- the
+      // approval prompt is the one thing that can't be missed.
+      if (remote.status === "pending") modal.hidden = false;
+    }
+
+    modal.querySelector("[data-remote-close]").addEventListener("click", close);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) close();
+    });
+
+    return {
+      open() {
+        remoteStart();
+        refresh();
+        modal.hidden = false;
+      },
+      refresh,
+      close,
+    };
+  }
+
   // Applied to <html> while either overlay below is open (see
   // fractalize-core.css) -- owned entirely by this file rather than
   // depending on a host page's own "modal open" class, since the engine
@@ -1378,6 +1686,7 @@
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
       "</div>" +
+      '<button type="button" class="fractal-remote-open" data-remote-open hidden>Control from your phone</button>' +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
       "</div>" +
       // Sits after both bottom sheets above in the DOM specifically so it
@@ -1513,6 +1822,7 @@
         thumb.classList.toggle("is-queued", fractalSettings.imageQueue.indexOf(src) !== -1);
         thumb.classList.toggle("is-playing", src === activeCurrentImageSrc);
       }
+      remoteNotifyState();
     }
     cameraRollRefreshBadges = updateCameraRollBadges;
     cameraRollInvalidate = function () {
@@ -1639,6 +1949,7 @@
         valueEl.textContent = FRACTAL_CONTROL_FORMATS[key](value);
       });
       saveFractalSettings(fractalSettings);
+      remoteNotifyState();
       // fractalPower is always among the four rerolled above, and (see
       // its own dedicated listener just above) is the one slider whose
       // manual drag already triggers a quick re-injection -- mirror
@@ -1715,6 +2026,150 @@
     };
     new MutationObserver(syncLiveAudioOnly).observe(audioDeviceRowEl, { attributes: true, attributeFilter: ["hidden"] });
     syncLiveAudioOnly();
+
+    // Phone remote (see the block above buildRemoteModal): the panel's own
+    // button + modal, plus the state/command API the relay session talks
+    // to. Commands are applied by driving the same controls a person
+    // would (set the input, fire its event) so every existing side effect
+    // -- saving, timers, re-injection -- runs exactly as for a local
+    // change; nothing here duplicates that logic.
+    const remoteBtn = panel.querySelector("[data-remote-open]");
+    const remoteModal = buildRemoteModal(el);
+    remoteUiRefresh = () => {
+      remoteBtn.hidden = !remoteConfig;
+      remoteBtn.textContent = remote.status === "connected" ? "Phone connected" : "Control from your phone";
+      remoteModal.refresh();
+    };
+    remoteBtn.addEventListener("click", () => remoteModal.open());
+    remoteUiRefresh();
+    const REMOTE_BLOCKED_TOGGLES = ["liveAudio"]; // the mic stays under the desktop's own control
+    function isKnownRemotePhoto(src) {
+      if (typeof src !== "string") return false;
+      return photoCatalog.some((g) => g.photos.some((p) => p.src === src));
+    }
+    remoteApi = {
+      getState() {
+        const controls = [];
+        panel.querySelectorAll("[data-setting], [data-toggle], .fractal-controls-divider").forEach((node) => {
+          if (node.classList.contains("fractal-controls-divider")) {
+            controls.push({ kind: "divider" });
+            return;
+          }
+          const row = node.closest(".fractal-controls-row");
+          const hintEl = row ? row.querySelector(".fractal-controls-hint") : null;
+          const hidden = !!(node.closest("[data-live-audio-only]") && node.closest("[data-live-audio-only]").hidden);
+          if (node.dataset.setting) {
+            const key = node.dataset.setting;
+            const valueEl = panel.querySelector('[data-value-for="' + key + '"]');
+            const labelEl = row.querySelector("label");
+            controls.push({
+              kind: "range",
+              key,
+              label: labelEl.firstChild.textContent.trim(),
+              min: Number(node.min),
+              max: Number(node.max),
+              step: Number(node.step) || 1,
+              value: Number(node.value),
+              text: valueEl ? valueEl.textContent : String(node.value),
+              hint: hintEl ? hintEl.textContent : "",
+              hidden,
+            });
+          } else {
+            const key = node.dataset.toggle;
+            if (REMOTE_BLOCKED_TOGGLES.indexOf(key) !== -1 || key === "randomizerEnabled") return;
+            controls.push({
+              kind: "toggle",
+              key,
+              label: node.parentElement.textContent.trim(),
+              checked: node.checked,
+              hint: hintEl ? hintEl.textContent : "",
+              hidden,
+            });
+          }
+        });
+        return {
+          controls,
+          randomizer: {
+            enabled: !!fractalSettings.randomizerEnabled,
+            sec: fractalSettings.randomizerTimerSec,
+            options: SHUFFLE_TIMER_OPTIONS,
+          },
+          shuffle: {
+            enabled: !!fractalSettings.shuffleEnabled,
+            sec: fractalSettings.shuffleTimerSec,
+            options: SHUFFLE_TIMER_OPTIONS,
+          },
+          queue: fractalSettings.imageQueue.slice(0, 300),
+          current: activeCurrentImageSrc,
+          live: !!liveAudioAnalyser,
+        };
+      },
+      apply(cmd) {
+        switch (cmd.t) {
+          case "set": {
+            const input = typeof cmd.key === "string" ? panel.querySelector('[data-setting="' + cmd.key + '"]') : null;
+            let v = Number(cmd.value);
+            if (!input || !isFinite(v)) return;
+            const min = Number(input.min);
+            const max = Number(input.max);
+            const step = Number(input.step) || 1;
+            v = Math.min(max, Math.max(min, min + Math.round((v - min) / step) * step));
+            input.value = v;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            break;
+          }
+          case "toggle": {
+            const key = cmd.key;
+            if (typeof key !== "string" || REMOTE_BLOCKED_TOGGLES.indexOf(key) !== -1) return;
+            const box = el.querySelector('[data-toggle="' + key + '"]');
+            if (!box) return;
+            box.checked = !!cmd.checked;
+            box.dispatchEvent(new Event("change", { bubbles: true }));
+            break;
+          }
+          case "randomizerSec": {
+            const pill = panel.querySelector('[data-randomizer-sec="' + Number(cmd.sec) + '"]');
+            if (pill) pill.click();
+            break;
+          }
+          case "shuffleSec": {
+            const pill = el.querySelector('[data-shuffle-sec="' + Number(cmd.sec) + '"]');
+            if (pill) pill.click();
+            break;
+          }
+          case "randomizeNow": {
+            panel.querySelector("[data-randomize-now]").click();
+            break;
+          }
+          case "play": {
+            if (!isKnownRemotePhoto(cmd.src)) return;
+            if (fractalSettings.imageQueue.indexOf(cmd.src) === -1) {
+              fractalSettings.imageQueue.push(cmd.src);
+              saveFractalSettings(fractalSettings);
+            }
+            if (activeImageSwitch) activeImageSwitch(cmd.src);
+            updateCameraRollBadges();
+            break;
+          }
+          case "queue": {
+            if (!isKnownRemotePhoto(cmd.src)) return;
+            const idx = fractalSettings.imageQueue.indexOf(cmd.src);
+            if (idx === -1) fractalSettings.imageQueue.push(cmd.src);
+            else fractalSettings.imageQueue.splice(idx, 1);
+            saveFractalSettings(fractalSettings);
+            updateCameraRollBadges();
+            startShuffleTimer();
+            break;
+          }
+        }
+        remoteNotifyState();
+      },
+    };
+    // Anything a person changes at the desktop shows up on the phone too.
+    ["input", "change", "click"].forEach((type) => {
+      panel.addEventListener(type, remoteNotifyState);
+      cameraRollPanel.addEventListener(type, remoteNotifyState);
+    });
 
     el.querySelector(".image-fractal-close").addEventListener("click", closeFractal);
     // activeCurrentImageSrc (kept in sync by the active session, see
@@ -2656,6 +3111,8 @@
     activeCurrentImageSrc = null;
     if (cameraRollStopShuffleTimer) cameraRollStopShuffleTimer();
     if (settingsPanelStopRandomizerTimer) settingsPanelStopRandomizerTimer();
+    // The phone remote's room only lives as long as the fractal is open.
+    remoteStop();
     // Stop capturing the moment the view closes -- no stray mic indicator
     // lingering after the visitor leaves. Resets every live-audio panel
     // on the page, not just this one (see disableLiveAudio's own
@@ -2758,6 +3215,15 @@
     openVisualizer,
     closeVisualizer,
     isVisualizerOpen,
+    // Opts into the "Control from your phone" button in the fractal's
+    // settings panel: relayUrl is the wss:// address of the relay Worker,
+    // remotePageUrl the host page's own phone-controller page (the QR
+    // code links to remotePageUrl + "#" + roomId). Never called by
+    // tuckermills.com, so the button never appears there.
+    setRemoteRelay: function (relayUrl, remotePageUrl) {
+      remoteConfig = relayUrl && remotePageUrl ? { relayUrl, remotePageUrl } : null;
+      if (remoteUiRefresh) remoteUiRefresh();
+    },
     setPhotoCatalog: function (groups) {
       photoCatalog = groups || [];
       // Invalidate rather than immediately rebuild -- both the camera
