@@ -106,6 +106,20 @@
   // the stream exactly as before.
   let keepLiveAudioOnClose = false;
 
+  // Windowed mode (see WINDOWED_TOGGLE_ICON/updateWindowedToggle):
+  // fractalWindowedExitRequested is set right before OUR OWN "exit
+  // fullscreen" click calls document.exitFullscreen(), so the global
+  // fullscreenchange listener below can tell that apart from a visitor
+  // leaving fullscreen some other way (the browser's own control, a
+  // swipe-down gesture, F11, ...) -- only the latter should still close
+  // the fractal outright, same as before this feature existed.
+  let fractalWindowedExitRequested = false;
+  // Set once inside buildFractal (built once, lazily, like the other
+  // per-session hooks below it) so the fullscreenchange listener can
+  // refresh the toolbar button's icon without reaching into that
+  // closure directly. Null whenever the fractal has never been built.
+  let updateWindowedToggle = null;
+
   const LIVE_AUDIO_DEVICE_KEY = "tuckerMillsLiveAudioDeviceId";
 
   function loadPreferredAudioDeviceId() {
@@ -1213,6 +1227,23 @@
   // advance, so it always reflects the *previous* push.
   const FRACTAL_VERSION = "vedc950b";
 
+  // Windowed mode: the fullscreen toolbar's "exit fullscreen" / "enter
+  // fullscreen" button (see buildFractal's markup and updateWindowedToggle
+  // below). "exit" is Google's Material Symbols "fullscreen_exit" glyph
+  // (supplied directly); "enter" is that icon's own standard counterpart,
+  // "fullscreen" -- same viewBox/fill convention, so the two swap in place
+  // with no layout shift.
+  const WINDOWED_TOGGLE_ICON = {
+    exit:
+      '<svg xmlns="http://www.w3.org/2000/svg" height="22px" viewBox="0 -960 960 960" width="22px" fill="#e3e3e3">' +
+      '<path d="m136-80-56-56 264-264H160v-80h320v320h-80v-184L136-80Zm344-400v-320h80v184l264-264 56 56-264 264h184v80H480Z"/>' +
+      "</svg>",
+    enter:
+      '<svg xmlns="http://www.w3.org/2000/svg" height="22px" viewBox="0 -960 960 960" width="22px" fill="#e3e3e3">' +
+      '<path d="M120-120v-200h80v120h120v80H120Zm520 0v-80h120v-120h80v200H640ZM120-640v-200h200v80H200v120h-80Zm640 0v-120H640v-80h200v200h-80Z"/>' +
+      "</svg>",
+  };
+
   // Per-visitor settings.
   const FRACTAL_DEFAULTS = {
     // growthEnabled didn't exist in the fractal at all before this panel
@@ -1719,6 +1750,15 @@
       '<path d="M852-212 732-332l56-56 120 120-56 56ZM708-692l-56-56 120-120 56 56-120 120Zm-456 0L132-812l56-56 120 120-56 56ZM108-212l-56-56 120-120 56 56-120 120Zm246-75 126-76 126 77-33-144 111-96-146-13-58-136-58 135-146 13 111 97-33 143ZM233-120l65-281L80-590l288-25 112-265 112 265 288 25-218 189 65 281-247-149-247 149Zm247-361Z"/>' +
       "</svg>" +
       "</button>" +
+      // Icon swaps between this (exit fullscreen -> windowed) and its
+      // Material Symbols counterpart "fullscreen" (enter fullscreen) --
+      // see updateWindowedToggle below, which keeps whichever is shown in
+      // sync with the actual fullscreen state (including when that state
+      // changes for a reason other than this button, e.g. the browser's
+      // own fullscreen exit control).
+      '<button type="button" class="image-fractal-windowed-toggle" data-windowed-toggle aria-label="Exit fullscreen">' +
+      WINDOWED_TOGGLE_ICON.exit +
+      "</button>" +
       "</div>";
     document.body.appendChild(el);
 
@@ -1727,6 +1767,30 @@
     const panel = el.querySelector(".fractal-controls");
     const cameraRollToggleBtn = el.querySelector(".image-fractal-cameraroll-toggle");
     const cameraRollPanel = el.querySelector(".fractal-cameraroll");
+
+    // Windowed mode: lets a visitor drop out of true fullscreen while
+    // keeping the fractal open, so it becomes an ordinary element of the
+    // browser window again -- they can resize/move that window, or
+    // switch to another app, with the fractal still running "on the
+    // side" rather than having to close it. Re-entering fullscreen from
+    // there is the same button, icon swapped (see WINDOWED_TOGGLE_ICON).
+    const windowedToggleBtn = el.querySelector("[data-windowed-toggle]");
+    updateWindowedToggle = function () {
+      const inFullscreen = document.fullscreenElement === el;
+      windowedToggleBtn.innerHTML = inFullscreen ? WINDOWED_TOGGLE_ICON.exit : WINDOWED_TOGGLE_ICON.enter;
+      windowedToggleBtn.setAttribute("aria-label", inFullscreen ? "Exit fullscreen" : "Enter fullscreen");
+    };
+    windowedToggleBtn.addEventListener("click", () => {
+      if (document.fullscreenElement === el) {
+        fractalWindowedExitRequested = true;
+        document.exitFullscreen().catch(() => {
+          fractalWindowedExitRequested = false;
+        });
+      } else if (el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      }
+    });
+
     // Read by the active session's resize()/frame() (see openFractal) to
     // downscale canvas resolution while either bottom sheet is open --
     // see resize()'s own comment for why that's worth doing.
@@ -2376,6 +2440,13 @@
     fractalCanvasEl = fractalEl.querySelector(".image-fractal-canvas");
     fractalEl.classList.add("is-open");
     if (fractalEl.requestFullscreen) fractalEl.requestFullscreen().catch(() => {});
+    // The fullscreenchange event (which flips the toggle button's icon,
+    // see updateWindowedToggle) normally follows the request above within
+    // a frame -- but if the request is silently rejected (a browser that
+    // doesn't support it, or simply refuses), that event never fires, and
+    // without this call the button would keep showing "Exit fullscreen"
+    // for a view that was never actually fullscreen to begin with.
+    if (updateWindowedToggle) updateWindowedToggle();
     lockScroll();
     resetIdleHide();
     // A stream already started elsewhere (the visualizer's own panel, or
@@ -3104,6 +3175,13 @@
     fractalEl.classList.remove("is-open");
     cancelAnimationFrame(fractalRAF);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    // Closing this way always means "leave", windowed-mode toggle or not
+    // -- and defensively clears a flag that a fullscreenchange racing
+    // this very close (e.g. the windowed-mode button clicked immediately
+    // before the main close button) could otherwise leave stuck true,
+    // which would wrongly spare a later, genuinely browser-initiated
+    // fullscreen exit from closing the next session.
+    fractalWindowedExitRequested = false;
     unlockScrollIfNeeded();
     activeReinject = null;
     activeImageSwitch = null;
@@ -3189,9 +3267,25 @@
   // self-contained (only ever touches this file's own state), unlike the
   // keydown handling below, which needs a host page's own awareness of
   // whatever else it might be layered inside (a lightbox, say).
+  //
+  // The fractal's own windowed-mode toggle (see buildFractal) is the one
+  // deliberate exception: it also exits fullscreen, but wants the
+  // fractal to stay open, windowed, rather than close outright --
+  // fractalWindowedExitRequested is how it tells this listener the exit
+  // was expected. Anything else that drops fullscreen (the browser's own
+  // control, F11, a mobile back-gesture, ...) still closes the fractal
+  // exactly as before this feature existed. The visualizer has no
+  // windowed mode of its own, so it's untouched.
   document.addEventListener("fullscreenchange", () => {
     if (!document.fullscreenElement && isVisualizerOpen()) closeVisualizer();
-    if (!document.fullscreenElement && isFractalOpen()) closeFractal();
+    if (!document.fullscreenElement && isFractalOpen()) {
+      if (fractalWindowedExitRequested) {
+        fractalWindowedExitRequested = false;
+      } else {
+        closeFractal();
+      }
+    }
+    if (isFractalOpen() && updateWindowedToggle) updateWindowedToggle();
   });
 
   // Escape closes whichever of the fractal/visualizer is open. No

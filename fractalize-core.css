@@ -219,7 +219,8 @@
 .image-fractal-close,
 .image-fractal-switch-visualizer,
 .image-fractal-settings-toggle,
-.image-fractal-cameraroll-toggle {
+.image-fractal-cameraroll-toggle,
+.image-fractal-windowed-toggle {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -236,13 +237,15 @@
 
 .image-fractal-switch-visualizer,
 .image-fractal-settings-toggle,
-.image-fractal-cameraroll-toggle {
+.image-fractal-cameraroll-toggle,
+.image-fractal-windowed-toggle {
   background: rgba(255, 255, 255, 0.1);
 }
 
 .image-fractal-switch-visualizer:hover,
 .image-fractal-settings-toggle:hover,
-.image-fractal-cameraroll-toggle:hover {
+.image-fractal-cameraroll-toggle:hover,
+.image-fractal-windowed-toggle:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
