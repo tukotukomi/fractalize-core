@@ -933,7 +933,9 @@
   left: 0;
   width: 100%;
   background: rgba(0, 0, 0, 0.75);
-  cursor: pointer;
+  /* Not dismissible by tapping (see buildFractal's own comment on why),
+     so no pointer cursor implying it is. */
+  cursor: default;
 }
 
 /* Top/bottom span the full width; left/right (positioned/sized entirely

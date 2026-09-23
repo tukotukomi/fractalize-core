@@ -1975,6 +1975,15 @@
     }
     function openTutorial() {
       if (isTutorialOpen()) return;
+      // Starts from a clean slate -- the settings/camera-roll sheets and
+      // the phone-remote modal (closePanels/remoteModal.close, defined
+      // further down this same closure -- both are function
+      // declarations/already-initialized consts by the time this is
+      // ever actually called, so the forward reference is fine) would
+      // otherwise sit open behind (or, worse, directly over) the very
+      // control step 1 is pointing at.
+      closePanels();
+      remoteModal.close();
       resetIdleHide();
       window.addEventListener("resize", tutorialHandleResize);
       showTutorialStep(0);
@@ -1999,14 +2008,11 @@
     closeActiveTutorial = closeTutorial;
     el.querySelector("[data-tutorial-open]").addEventListener("click", openTutorial);
     tutorialEl.querySelector("[data-tutorial-close]").addEventListener("click", closeTutorial);
-    // Tapping any of the dark shaded area (i.e. everywhere except the
-    // spotlight hole and the close button/text sitting on top of it)
-    // dismisses the tutorial too -- the common "tap outside to close"
-    // affordance, same intent as the close button, just not requiring
-    // its own delegated per-shade listener.
-    tutorialEl.addEventListener("click", (e) => {
-      if (e.target.closest("[data-tutorial-shade]")) closeTutorial();
-    });
+    // Deliberately NOT dismissible by tapping the dark shaded area --
+    // only the X above and the highlighted target itself (see
+    // tutorialAdvanceHandler in showTutorialStep) close it, so a new
+    // visitor can't accidentally swipe/tap their way past the one thing
+    // this step is asking them to notice.
     toggleBtn.addEventListener("click", () => {
       cameraRollPanel.classList.remove("is-open");
       panel.classList.toggle("is-open");
