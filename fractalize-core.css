@@ -332,6 +332,57 @@
   accent-color: #fff;
 }
 
+/* Wraps a randomizable slider's own <input> alongside its lock button
+   (see .fractal-controls-lock below) -- the slider shrinks to make room
+   rather than the button overlapping it. Only present on rows that
+   actually have a lock button; every other .fractal-controls-row's
+   <input> is still a direct child, still full-width via the rule above. */
+.fractal-controls-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fractal-controls-slider-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* Randomizer lock: a small round icon button (vs. the pill shape used
+   elsewhere in this panel, e.g. .fractal-controls-randomizer-pill) since
+   it holds a square icon rather than text -- same border/background/
+   is-active language as those pills otherwise, so it still reads as
+   part of the same control family. Locked (.is-active) swaps to the
+   closed-padlock icon on a solid white circle; LOCK_ICON's own two
+   pre-built variants (see fractalize-core.js) already carry the
+   matching light/dark icon fill for each state. */
+.fractal-controls-lock {
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.fractal-controls-lock:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fractal-controls-lock.is-active {
+  background: #fff;
+  border-color: #fff;
+}
+
 .fractal-controls-toggle-row {
   margin-bottom: 18px;
 }

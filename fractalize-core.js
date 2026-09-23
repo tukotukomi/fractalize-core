@@ -1244,6 +1244,44 @@
       "</svg>",
   };
 
+  // Randomizer lock (see RANDOMIZABLE_KEYS/randomizeFractalSettings): a
+  // small round button next to each randomizable slider, one per key,
+  // toggling whether the Randomizer is allowed to reroll it. Both icons
+  // are Google's Material Symbols "lock_open"/"lock" glyphs (supplied
+  // directly for the closed one; open is that icon's own standard
+  // counterpart, same viewBox/fill convention). The fill color itself
+  // swaps with the state (light icon on the default translucent circle,
+  // dark icon once .is-active turns the circle solid white -- same
+  // convention every other is-active pill/button in this panel uses) --
+  // two full pre-built strings rather than one shared path + a CSS
+  // color, matching this file's existing all-hardcoded-fill convention
+  // for every other inline icon (no currentColor anywhere else here).
+  const LOCK_ICON = {
+    open:
+      '<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="#e3e3e3">' +
+      '<path d="M240-640h360v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85h-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640Zm0 480h480v-400H240v400Zm296.5-143.5Q560-327 560-360t-23.5-56.5Q513-440 480-440t-56.5 23.5Q400-393 400-360t23.5 56.5Q447-280 480-280t56.5-23.5ZM240-160v-400 400Z"/>' +
+      "</svg>",
+    closed:
+      '<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="#111">' +
+      '<path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm296.5-143.5Q560-327 560-360t-23.5-56.5Q513-440 480-440t-56.5 23.5Q400-393 400-360t23.5 56.5Q447-280 480-280t56.5-23.5ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z"/>' +
+      "</svg>",
+  };
+  // Always starts as the open icon -- setupRandomizerLocks (see
+  // buildFractal) sets the real initial state (icon + aria-pressed) once
+  // fractalSettings has actually loaded, same as every slider's own
+  // value being set separately from its markup below.
+  function lockButtonHtml(key, label) {
+    return (
+      '<button type="button" class="fractal-controls-lock" data-randomizer-lock="' +
+      key +
+      '" aria-label="Lock ' +
+      label +
+      ' from the Randomizer" aria-pressed="false">' +
+      LOCK_ICON.open +
+      "</button>"
+    );
+  }
+
   // Per-visitor settings.
   const FRACTAL_DEFAULTS = {
     // growthEnabled didn't exist in the fractal at all before this panel
@@ -1291,12 +1329,19 @@
     shuffleEnabled: false,
     shuffleTimerSec: 30,
     // Randomizer (the settings panel's own) -- periodically rerolls
-    // Fractal shape/Background saturation/Zoom depth/Cycle duration to
-    // random values within their own slider ranges. Same timer-interval
-    // pattern as the camera roll's shuffle, see startRandomizerTimer in
-    // buildFractal.
+    // Fractal shape/Zoom depth/Base cycle length to random values within
+    // their own slider ranges. Same timer-interval pattern as the camera
+    // roll's shuffle, see startRandomizerTimer in buildFractal.
     randomizerEnabled: false,
     randomizerTimerSec: 30,
+    // Per-slider opt-out from the Randomizer above (and from RANDOMIZE
+    // NOW) -- keyed by the same setting key as RANDOMIZABLE_KEYS, true
+    // meaning "locked, leave this one alone." Starts empty rather than
+    // pre-filled with every key at false: a key simply missing here
+    // reads as unlocked (see randomizeFractalSettings), so a future
+    // randomizable slider needs no migration to be unlocked by default
+    // for visitors who already have settings saved.
+    randomizerLocks: {},
     // Trades visual thoroughness for raw frame rate on slower machines:
     // caps canvas resolution to 1x device-pixel-ratio (see resize()),
     // halves the shader's per-pixel iteration budget (see maxIter in
@@ -1671,11 +1716,20 @@
       "</div>" +
       "</div>" +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
-      '<input type="range" data-setting="fractalPower" min="2" max="6" step="1"></div>' +
+      '<div class="fractal-controls-slider-row">' +
+      '<input type="range" data-setting="fractalPower" min="2" max="6" step="1">' +
+      lockButtonHtml("fractalPower", "Fractal shape") +
+      "</div></div>" +
       '<div class="fractal-controls-row"><label>Zoom depth <span class="fractal-controls-value" data-value-for="zoomDepth"></span></label>' +
-      '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5"></div>' +
+      '<div class="fractal-controls-slider-row">' +
+      '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5">' +
+      lockButtonHtml("zoomDepth", "Zoom depth") +
+      "</div></div>" +
       '<div class="fractal-controls-row"><label>Base cycle length <span class="fractal-controls-value" data-value-for="cycleDurationSec"></span></label>' +
+      '<div class="fractal-controls-slider-row">' +
       '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
+      lockButtonHtml("cycleDurationSec", "Base cycle length") +
+      "</div>" +
       '<p class="fractal-controls-hint">How long one zoom cycle lasts in calm moments. Speed surge shortens it while music plays.</p></div>' +
       '<hr class="fractal-controls-divider">' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
@@ -1993,14 +2047,39 @@
       }, 150);
     });
 
+    // Randomizer lock buttons (see LOCK_ICON/lockButtonHtml above): each
+    // wired independently of RANDOMIZABLE_KEYS below, reading/writing
+    // fractalSettings.randomizerLocks[key] -- randomizeFractalSettings
+    // checks the same object before rerolling a key, so locking a slider
+    // here is the one thing that keeps it out of both the timer's own
+    // periodic rerolls and a manual RANDOMIZE NOW.
+    panel.querySelectorAll("[data-randomizer-lock]").forEach((lockBtn) => {
+      const key = lockBtn.dataset.randomizerLock;
+      function syncLockBtn() {
+        const locked = !!fractalSettings.randomizerLocks[key];
+        lockBtn.classList.toggle("is-active", locked);
+        lockBtn.innerHTML = locked ? LOCK_ICON.closed : LOCK_ICON.open;
+        lockBtn.setAttribute("aria-pressed", String(locked));
+      }
+      syncLockBtn();
+      lockBtn.addEventListener("click", () => {
+        fractalSettings.randomizerLocks[key] = !fractalSettings.randomizerLocks[key];
+        saveFractalSettings(fractalSettings);
+        syncLockBtn();
+        remoteNotifyState();
+      });
+    });
+
     // Randomizer: periodically (or on demand, via RANDOMIZE NOW) rerolls
-    // the four sliders above to random values within their own existing
+    // the three sliders above to random values within their own existing
     // min/max/step -- reading those straight off each <input> rather
     // than duplicating the ranges here, so a future slider-range tweak
     // can't silently drift out of sync with what Randomizer picks from.
+    // Skips any key locked via the buttons wired just above.
     const RANDOMIZABLE_KEYS = ["fractalPower", "zoomDepth", "cycleDurationSec"];
     function randomizeFractalSettings() {
       RANDOMIZABLE_KEYS.forEach((key) => {
+        if (fractalSettings.randomizerLocks[key]) return;
         const input = panel.querySelector('[data-setting="' + key + '"]');
         const valueEl = panel.querySelector('[data-value-for="' + key + '"]');
         const min = Number(input.min);
