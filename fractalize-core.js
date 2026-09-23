@@ -1717,18 +1717,18 @@
       "</div>" +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<div class="fractal-controls-slider-row">' +
-      '<input type="range" data-setting="fractalPower" min="2" max="6" step="1">' +
       lockButtonHtml("fractalPower", "Fractal shape") +
+      '<input type="range" data-setting="fractalPower" min="2" max="6" step="1">' +
       "</div></div>" +
       '<div class="fractal-controls-row"><label>Zoom depth <span class="fractal-controls-value" data-value-for="zoomDepth"></span></label>' +
       '<div class="fractal-controls-slider-row">' +
-      '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5">' +
       lockButtonHtml("zoomDepth", "Zoom depth") +
+      '<input type="range" data-setting="zoomDepth" min="1" max="15" step="0.5">' +
       "</div></div>" +
       '<div class="fractal-controls-row"><label>Base cycle length <span class="fractal-controls-value" data-value-for="cycleDurationSec"></span></label>' +
       '<div class="fractal-controls-slider-row">' +
-      '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
       lockButtonHtml("cycleDurationSec", "Base cycle length") +
+      '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
       "</div>" +
       '<p class="fractal-controls-hint">How long one zoom cycle lasts in calm moments. Speed surge shortens it while music plays.</p></div>' +
       '<hr class="fractal-controls-divider">' +
@@ -2216,6 +2216,11 @@
               text: valueEl ? valueEl.textContent : String(node.value),
               hint: hintEl ? hintEl.textContent : "",
               hidden,
+              // Randomizer lock (see LOCK_ICON/lockButtonHtml above) --
+              // only the three RANDOMIZABLE_KEYS sliders have a lock
+              // button at all, so the phone only renders one for those.
+              lockable: RANDOMIZABLE_KEYS.indexOf(key) !== -1,
+              locked: !!fractalSettings.randomizerLocks[key],
             });
           } else {
             const key = node.dataset.toggle;
@@ -2268,6 +2273,13 @@
             if (!box) return;
             box.checked = !!cmd.checked;
             box.dispatchEvent(new Event("change", { bubbles: true }));
+            break;
+          }
+          case "lock": {
+            // Reuses the desktop button's own click handler (toggle +
+            // save + icon sync) rather than duplicating that logic here.
+            const lockBtn = typeof cmd.key === "string" ? panel.querySelector('[data-randomizer-lock="' + cmd.key + '"]') : null;
+            if (lockBtn) lockBtn.click();
             break;
           }
           case "randomizerSec": {
