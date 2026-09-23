@@ -119,6 +119,17 @@
   // refresh the toolbar button's icon without reaching into that
   // closure directly. Null whenever the fractal has never been built.
   let updateWindowedToggle = null;
+  // Same pattern again, for the tutorial (see TUTORIAL_STEPS/
+  // openTutorial in buildFractal): closes it if open and reports
+  // whether it actually was, so both the Escape handler and
+  // closeFractal's own cleanup below can reach it from outside that
+  // closure -- Escape dismisses just the tutorial first (one modal
+  // layer at a time) rather than also closing the whole fractal in the
+  // same press, and closeFractal defensively resets any tutorial left
+  // open (flashing target, resize listener, panel-open contribution)
+  // from a visitor who closed the fractal mid-tutorial instead of
+  // dismissing it first.
+  let closeActiveTutorial = null;
 
   const LIVE_AUDIO_DEVICE_KEY = "tuckerMillsLiveAudioDeviceId";
 
@@ -1266,6 +1277,21 @@
       '<path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm296.5-143.5Q560-327 560-360t-23.5-56.5Q513-440 480-440t-56.5 23.5Q400-393 400-360t23.5 56.5Q447-280 480-280t56.5-23.5ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z"/>' +
       "</svg>",
   };
+
+  // Tutorial (see openTutorial/buildFractal below): a "?" toolbar button
+  // opens a dark spotlight overlay that points at one real, still-
+  // clickable toolbar element per step, with a centered caption. Only
+  // one step exists so far (deliberately -- built to test the mechanism
+  // itself first); TUTORIAL_STEPS is still an array, and showTutorialStep
+  // already looks its target up by selector rather than taking a direct
+  // element, so appending a second step later is just another entry
+  // here, no rewiring.
+  const HELP_ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20px" height="20px">' +
+    '<text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" font-family="system-ui, sans-serif" fill="#e3e3e3">?</text>' +
+    "</svg>";
+  const TUTORIAL_STEPS = [{ target: ".image-fractal-settings-toggle", text: "Tap here to open Fractalizer Control." }];
+
   // Always starts as the open icon -- setupRandomizerLocks (see
   // buildFractal) sets the real initial state (icon + aria-pressed) once
   // fractalSettings has actually loaded, same as every slider's own
@@ -1813,6 +1839,30 @@
       '<button type="button" class="image-fractal-windowed-toggle" data-windowed-toggle aria-label="Exit fullscreen">' +
       WINDOWED_TOGGLE_ICON.exit +
       "</button>" +
+      '<button type="button" class="image-fractal-help-toggle" data-tutorial-open aria-label="Show tutorial">' +
+      HELP_ICON +
+      "</button>" +
+      "</div>" +
+      // Tutorial overlay (see TUTORIAL_STEPS/openTutorial below). Not
+      // another bottom sheet like .fractal-controls/.fractal-cameraroll
+      // above -- it has to cover the ENTIRE screen, toolbar included,
+      // with a rectangular hole cut wherever the current step points.
+      // The "hole" is a real gap between four shade divs (top/bottom/
+      // left/right around the target's own rect), not a fake see-
+      // through trick over an opaque layer -- so the highlighted
+      // element underneath is genuinely, natively clickable through it,
+      // no pointer-events juggling required.
+      '<div class="fractal-tutorial" data-tutorial hidden>' +
+      '<div class="fractal-tutorial-shade" data-tutorial-shade="top"></div>' +
+      '<div class="fractal-tutorial-shade" data-tutorial-shade="bottom"></div>' +
+      '<div class="fractal-tutorial-shade" data-tutorial-shade="left"></div>' +
+      '<div class="fractal-tutorial-shade" data-tutorial-shade="right"></div>' +
+      '<p class="fractal-tutorial-text" data-tutorial-text></p>' +
+      '<button type="button" class="fractal-tutorial-close" data-tutorial-close aria-label="Close tutorial">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18px" height="18px" fill="none" stroke="#e3e3e3" stroke-width="2" stroke-linecap="round">' +
+      '<line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/>' +
+      "</svg>" +
+      "</button>" +
       "</div>";
     document.body.appendChild(el);
 
@@ -1847,10 +1897,115 @@
 
     // Read by the active session's resize()/frame() (see openFractal) to
     // downscale canvas resolution while either bottom sheet is open --
-    // see resize()'s own comment for why that's worth doing.
+    // see resize()'s own comment for why that's worth doing. Also true
+    // while the tutorial is showing (see isTutorialOpen below) -- same
+    // benefit (most of the screen is dark shade regardless) plus it
+    // reuses this class's other effect, guarding idle-hide so the
+    // toolbar can't fade out mid-explanation (see
+    // isActiveOverlayPanelOpen/scheduleIdleHide further down the file).
     function syncPanelOpenClass() {
-      el.classList.toggle("panel-open", panel.classList.contains("is-open") || cameraRollPanel.classList.contains("is-open"));
+      el.classList.toggle(
+        "panel-open",
+        panel.classList.contains("is-open") || cameraRollPanel.classList.contains("is-open") || isTutorialOpen()
+      );
     }
+
+    // Tutorial: see TUTORIAL_STEPS above for the step data and the
+    // file-level comment there for the overall design. State lives in
+    // this closure (one tutorial per fractal session, same as the
+    // camera roll/settings panel it points at); tutorialStep is the
+    // index into TUTORIAL_STEPS, or -1 while closed.
+    const tutorialEl = el.querySelector("[data-tutorial]");
+    const tutorialTextEl = tutorialEl.querySelector("[data-tutorial-text]");
+    const tutorialShades = {
+      top: tutorialEl.querySelector('[data-tutorial-shade="top"]'),
+      bottom: tutorialEl.querySelector('[data-tutorial-shade="bottom"]'),
+      left: tutorialEl.querySelector('[data-tutorial-shade="left"]'),
+      right: tutorialEl.querySelector('[data-tutorial-shade="right"]'),
+    };
+    let tutorialStep = -1;
+    let tutorialTargetEl = null;
+    let tutorialAdvanceHandler = null;
+    function isTutorialOpen() {
+      return tutorialStep !== -1;
+    }
+    // Recomputes the four shade rects from the current step's target
+    // every call rather than caching anything -- cheap (one
+    // getBoundingClientRect + four style writes), and needs to re-run on
+    // resize/orientation-change/fullscreen-toggle anyway, so there's no
+    // real "unchanged" case worth special-casing.
+    const TUTORIAL_SPOTLIGHT_PAD = 8;
+    function positionTutorialSpotlight() {
+      if (!tutorialTargetEl) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const r = tutorialTargetEl.getBoundingClientRect();
+      const top = Math.max(0, r.top - TUTORIAL_SPOTLIGHT_PAD);
+      const left = Math.max(0, r.left - TUTORIAL_SPOTLIGHT_PAD);
+      const bottom = Math.min(vh, r.bottom + TUTORIAL_SPOTLIGHT_PAD);
+      const right = Math.min(vw, r.right + TUTORIAL_SPOTLIGHT_PAD);
+      tutorialShades.top.style.cssText = "height:" + Math.max(0, top) + "px";
+      tutorialShades.bottom.style.cssText = "top:" + bottom + "px;height:" + Math.max(0, vh - bottom) + "px";
+      tutorialShades.left.style.cssText = "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;width:" + Math.max(0, left) + "px";
+      tutorialShades.right.style.cssText =
+        "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;left:" + right + "px;width:" + Math.max(0, vw - right) + "px";
+    }
+    function tutorialHandleResize() {
+      if (isTutorialOpen()) positionTutorialSpotlight();
+    }
+    function showTutorialStep(index) {
+      const step = TUTORIAL_STEPS[index];
+      if (!step) return;
+      tutorialStep = index;
+      tutorialTextEl.textContent = step.text;
+      tutorialTargetEl = el.querySelector(step.target);
+      if (tutorialTargetEl) {
+        tutorialTargetEl.classList.add("fractal-tutorial-flash");
+        // Only one step exists right now, so "the visitor did the thing
+        // this step asked" and "the tutorial is over" are the same
+        // event -- a future step 2 would swap this for "advance to the
+        // next step instead, unless this is the last one."
+        tutorialAdvanceHandler = closeTutorial;
+        tutorialTargetEl.addEventListener("click", tutorialAdvanceHandler, { once: true });
+      }
+      positionTutorialSpotlight();
+      tutorialEl.hidden = false;
+      syncPanelOpenClass();
+    }
+    function openTutorial() {
+      if (isTutorialOpen()) return;
+      resetIdleHide();
+      window.addEventListener("resize", tutorialHandleResize);
+      showTutorialStep(0);
+    }
+    // Returns whether it actually closed something -- see
+    // closeActiveTutorial's own comment above for why callers outside
+    // this closure need that.
+    function closeTutorial() {
+      if (!isTutorialOpen()) return false;
+      if (tutorialTargetEl) {
+        tutorialTargetEl.classList.remove("fractal-tutorial-flash");
+        if (tutorialAdvanceHandler) tutorialTargetEl.removeEventListener("click", tutorialAdvanceHandler);
+      }
+      tutorialTargetEl = null;
+      tutorialAdvanceHandler = null;
+      tutorialStep = -1;
+      tutorialEl.hidden = true;
+      window.removeEventListener("resize", tutorialHandleResize);
+      syncPanelOpenClass();
+      return true;
+    }
+    closeActiveTutorial = closeTutorial;
+    el.querySelector("[data-tutorial-open]").addEventListener("click", openTutorial);
+    tutorialEl.querySelector("[data-tutorial-close]").addEventListener("click", closeTutorial);
+    // Tapping any of the dark shaded area (i.e. everywhere except the
+    // spotlight hole and the close button/text sitting on top of it)
+    // dismisses the tutorial too -- the common "tap outside to close"
+    // affordance, same intent as the close button, just not requiring
+    // its own delegated per-shade listener.
+    tutorialEl.addEventListener("click", (e) => {
+      if (e.target.closest("[data-tutorial-shade]")) closeTutorial();
+    });
     toggleBtn.addEventListener("click", () => {
       cameraRollPanel.classList.remove("is-open");
       panel.classList.toggle("is-open");
@@ -3273,6 +3428,10 @@
     // which would wrongly spare a later, genuinely browser-initiated
     // fullscreen exit from closing the next session.
     fractalWindowedExitRequested = false;
+    // See closeActiveTutorial's own comment -- resets any tutorial state
+    // left open by a visitor who closed the fractal directly instead of
+    // dismissing the tutorial first.
+    if (closeActiveTutorial) closeActiveTutorial();
     unlockScrollIfNeeded();
     activeReinject = null;
     activeImageSwitch = null;
@@ -3389,8 +3548,14 @@
   // capture phase to observe state before this one can change it.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (isFractalOpen()) closeFractal();
-    else if (isVisualizerOpen()) closeVisualizer();
+    if (isFractalOpen()) {
+      // One modal layer at a time -- if the tutorial's open, this press
+      // dismisses just that (closeActiveTutorial reports whether it
+      // actually was), same as clicking its own close button or tapping
+      // its shaded backdrop. A second Escape then closes the fractal.
+      if (closeActiveTutorial && closeActiveTutorial()) return;
+      closeFractal();
+    } else if (isVisualizerOpen()) closeVisualizer();
   });
 
   window.FractalizeCore = {

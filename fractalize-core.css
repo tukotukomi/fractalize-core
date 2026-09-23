@@ -220,7 +220,8 @@
 .image-fractal-switch-visualizer,
 .image-fractal-settings-toggle,
 .image-fractal-cameraroll-toggle,
-.image-fractal-windowed-toggle {
+.image-fractal-windowed-toggle,
+.image-fractal-help-toggle {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -238,14 +239,16 @@
 .image-fractal-switch-visualizer,
 .image-fractal-settings-toggle,
 .image-fractal-cameraroll-toggle,
-.image-fractal-windowed-toggle {
+.image-fractal-windowed-toggle,
+.image-fractal-help-toggle {
   background: rgba(255, 255, 255, 0.1);
 }
 
 .image-fractal-switch-visualizer:hover,
 .image-fractal-settings-toggle:hover,
 .image-fractal-cameraroll-toggle:hover,
-.image-fractal-windowed-toggle:hover {
+.image-fractal-windowed-toggle:hover,
+.image-fractal-help-toggle:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -897,6 +900,107 @@
   transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
+}
+
+/* --- Tutorial: dark spotlight overlay + centered caption ---------------
+   Sits above every other child of .image-fractal (toolbar included) so
+   its shading always wins the paint order regardless of DOM order --
+   see buildFractal's own comment on why the "hole" is four real,
+   separately-positioned divs rather than one clever box-shadow/mask
+   trick: with a real gap, the highlighted element underneath needs no
+   pointer-events workaround to stay genuinely clickable. */
+.fractal-tutorial {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.fractal-tutorial[hidden] {
+  display: none;
+}
+
+.fractal-tutorial-shade {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.75);
+  cursor: pointer;
+}
+
+/* Top/bottom span the full width; left/right (positioned/sized entirely
+   via buildFractal's positionTutorialSpotlight, both dimensions) fill
+   just the row alongside the spotlight hole, so together the four cover
+   the screen exactly once each, with no overlap and no gap besides the
+   hole itself. */
+.fractal-tutorial-shade[data-tutorial-shade="top"] {
+  top: 0;
+}
+
+.fractal-tutorial-shade[data-tutorial-shade="left"],
+.fractal-tutorial-shade[data-tutorial-shade="right"] {
+  width: auto;
+}
+
+.fractal-tutorial-text {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 15%;
+  text-align: center;
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+  /* The shade directly beneath still needs to catch the tap-to-dismiss
+     click even where this centered caption visually overlaps it. */
+  pointer-events: none;
+}
+
+.fractal-tutorial-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.fractal-tutorial-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Applied to whichever real element the current step points at (see
+   showTutorialStep) -- pulses brighter to draw the eye to it, the
+   highlighting itself coming from the shades' cutout above rather than
+   any outline/ring here. */
+@keyframes fractal-tutorial-flash-kf {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(2.1);
+  }
+}
+
+.fractal-tutorial-flash {
+  animation: fractal-tutorial-flash-kf 1s ease-in-out infinite;
 }
 
 /* --- Phone remote: settings-panel button + QR/approval modal ----------- */
