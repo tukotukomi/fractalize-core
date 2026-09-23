@@ -1740,8 +1740,8 @@
       ).join("") +
       '<button type="button" class="fractal-controls-randomize-now" data-randomize-now>RANDOMIZE NOW</button>' +
       "</div>" +
+      '<p class="fractal-controls-hint">Lock fractal sliders to prevent them from being changed by the randomizer.</p>' +
       "</div>" +
-      '<div class="fractal-controls-row"><p class="fractal-controls-hint">Lock fractal sliders to prevent them from being changed by the randomizer.</p></div>' +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<div class="fractal-controls-slider-row">' +
       lockButtonHtml("fractalPower", "Fractal shape") +

@@ -672,6 +672,15 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+/* Forces its own full-width line below the toggle/timer row above,
+   rather than sitting beside them as a third flex item -- everything
+   else in this flex-wrap row is a control (label/pills/button) with its
+   own intrinsic width, not a paragraph meant to share a line. */
+.fractal-controls-randomizer > .fractal-controls-hint {
+  width: 100%;
+  margin-top: 4px;
+}
+
 .fractal-controls-randomizer-toggle {
   display: flex;
   align-items: center;
