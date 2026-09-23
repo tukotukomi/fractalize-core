@@ -922,6 +922,16 @@
   position: absolute;
   inset: 0;
   z-index: 10;
+  /* Transparent to clicks by default. Without this, this container's
+     OWN box -- which spans the full viewport regardless of what its
+     children actually paint -- would win hit-testing everywhere it
+     covers, including the spotlight hole: a real (coordinate-based)
+     click there would land on this empty container instead of falling
+     through to the highlighted element underneath, even though nothing
+     is visually on top of it there. pointer-events is inherited, so
+     every child that DOES need to catch clicks (the shades, the close
+     button) turns it back on for itself below. */
+  pointer-events: none;
 }
 
 .fractal-tutorial[hidden] {
@@ -936,6 +946,11 @@
   /* Not dismissible by tapping (see buildFractal's own comment on why),
      so no pointer cursor implying it is. */
   cursor: default;
+  /* Re-enables hit-testing that .fractal-tutorial's own pointer-events:
+     none turned off -- these are the actual dark, opaque area, so they
+     should still block a click from reaching whatever's behind them
+     (the canvas, other toolbar buttons), just no longer act on it. */
+  pointer-events: auto;
 }
 
 /* Top/bottom span the full width; left/right (positioned/sized entirely
@@ -967,8 +982,11 @@
   font-weight: 600;
   line-height: 1.4;
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
-  /* The shade directly beneath still needs to catch the tap-to-dismiss
-     click even where this centered caption visually overlaps it. */
+  /* Already the inherited default (.fractal-tutorial's own
+     pointer-events: none above) -- explicit here so this stays correct
+     even if that ever changes, and to record the reason: whatever's
+     beneath (a shade, or the spotlight hole) needs the click, not this
+     purely-visual caption. */
   pointer-events: none;
 }
 
@@ -977,6 +995,11 @@
   top: 20px;
   right: 20px;
   z-index: 2;
+  /* Overrides the inherited none from .fractal-tutorial -- unlike the
+     shades (real dark area, still meant to block clicks) or the hole
+     (meant to pass them through), this is an actual control and needs
+     to stay clickable. */
+  pointer-events: auto;
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
