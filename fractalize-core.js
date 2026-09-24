@@ -1279,27 +1279,53 @@
   };
 
   // Tutorial (see openTutorial/buildFractal below): a "?" toolbar button
-  // opens a dark spotlight overlay that points at one real, still-
-  // clickable toolbar element per step, with a centered caption. Only
-  // one step exists so far (deliberately -- built to test the mechanism
-  // itself first); TUTORIAL_STEPS is still an array, and showTutorialStep
-  // already looks its target up by selector rather than taking a direct
-  // element, so appending a second step later is just another entry
-  // here, no rewiring.
+  // opens a dark spotlight overlay, one step at a time, each pointing at
+  // (or dimming) something different -- see each step's own fields:
+  //   target        -- selector to cut a real, native-clickable hole
+  //                     around (no hole/full-screen tint if omitted).
+  //                     Clicking it advances to the next step (or closes
+  //                     on the last one) UNLESS blockTargetClicks is set.
+  //   blockTargetClicks -- keeps target's own hole (still visible, still
+  //                     un-shaded) but makes it inert: a transparent,
+  //                     click-swallowing layer sits over that exact same
+  //                     area, for showing a feature off without letting
+  //                     the visitor actually trigger it mid-tutorial.
+  //   heavyTint     -- swaps the shade's usual 75%-opaque black for a
+  //                     much darker one, for a step that wants to
+  //                     de-emphasize the whole screen (target included,
+  //                     if any) in favor of its own caption.
+  //   blurTarget    -- an independent second layer, blurring whatever's
+  //                     behind THIS element's own area specifically
+  //                     (unrelated to target/the hole) -- built, but not
+  //                     used by any step yet; kept for a later step.
+  //   textAnchor    -- selector to pin the caption 50px above (see
+  //                     TUTORIAL_TEXT_ANCHOR_GAP), instead of the
+  //                     default dead-center-of-screen placement.
+  //   text          -- the caption itself.
+  // Steps with no forced target interaction (no target, or target
+  // present but blocked) can also be advanced by tapping the dark shade
+  // itself -- see the delegated click listener in buildFractal. A step
+  // whose target DOES require the real click (step 1) is the one
+  // exception: tapping the shade there deliberately does nothing, so
+  // finding and clicking the actual button stays the only way through.
   const HELP_ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20px" height="20px">' +
     '<text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" font-family="system-ui, sans-serif" fill="#e3e3e3">?</text>' +
     "</svg>";
   const TUTORIAL_STEPS = [
     { target: ".image-fractal-settings-toggle", text: "Tap here to open Fractalizer Control." },
-    // No target (no spotlight hole -- the dark tint covers the whole
-    // screen uniformly) and no caption text yet, both to be filled in
-    // once this step's own interaction is designed. blurTarget instead
-    // adds a second effect: an extra blurred layer over that element's
-    // own on-screen area specifically, independent of and on top of the
-    // full-screen tint -- see positionTutorialSpotlight/tutorialBlurEl
-    // below for how the two combine.
-    { target: null, blurTarget: ".fractal-controls", text: "" },
+    {
+      target: null,
+      heavyTint: true,
+      textAnchor: '[data-setting="fractalPower"]',
+      text: "Part of the fun is exploring how different sliders and effects change your fractals.",
+    },
+    {
+      target: ".fractal-controls-randomizer",
+      blockTargetClicks: true,
+      textAnchor: '[data-setting="fractalPower"]',
+      text: "The Randomizer helps make live performances more dynamic.",
+    },
   ];
 
   // Always starts as the open icon -- setupRandomizerLocks (see
@@ -1945,30 +1971,47 @@
     let tutorialStep = -1;
     let tutorialTargetEl = null;
     let tutorialBlurTargetEl = null;
+    let tutorialTextAnchorEl = null;
     let tutorialAdvanceHandler = null;
     function isTutorialOpen() {
       return tutorialStep !== -1;
     }
-    // Recomputes the shade rects (and the blur layer's own rect, if this
-    // step has one) from the current step every call rather than caching
-    // anything -- cheap, and needs to re-run on resize/orientation-
-    // change/fullscreen-toggle anyway, so there's no real "unchanged"
-    // case worth special-casing.
+    // Recomputes everything position-related from the current step every
+    // call rather than caching anything -- cheap, and needs to re-run on
+    // resize/orientation-change/fullscreen-toggle anyway, so there's no
+    // real "unchanged" case worth special-casing.
     const TUTORIAL_SPOTLIGHT_PAD = 8;
+    const TUTORIAL_TEXT_ANCHOR_GAP = 50;
     function positionTutorialSpotlight() {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      // holeRect (when there's a target) is reused below for
+      // blockTargetClicks specifically, so the inert overlay lines up
+      // pixel-for-pixel with the shade cutout it's covering rather than
+      // being computed from the target's own unpadded rect separately.
+      let holeRect = null;
       if (tutorialTargetEl) {
         const r = tutorialTargetEl.getBoundingClientRect();
-        const top = Math.max(0, r.top - TUTORIAL_SPOTLIGHT_PAD);
-        const left = Math.max(0, r.left - TUTORIAL_SPOTLIGHT_PAD);
-        const bottom = Math.min(vh, r.bottom + TUTORIAL_SPOTLIGHT_PAD);
-        const right = Math.min(vw, r.right + TUTORIAL_SPOTLIGHT_PAD);
-        tutorialShades.top.style.cssText = "height:" + Math.max(0, top) + "px";
-        tutorialShades.bottom.style.cssText = "top:" + bottom + "px;height:" + Math.max(0, vh - bottom) + "px";
-        tutorialShades.left.style.cssText = "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;width:" + Math.max(0, left) + "px";
+        holeRect = {
+          top: Math.max(0, r.top - TUTORIAL_SPOTLIGHT_PAD),
+          left: Math.max(0, r.left - TUTORIAL_SPOTLIGHT_PAD),
+          bottom: Math.min(vh, r.bottom + TUTORIAL_SPOTLIGHT_PAD),
+          right: Math.min(vw, r.right + TUTORIAL_SPOTLIGHT_PAD),
+        };
+        tutorialShades.top.style.cssText = "height:" + holeRect.top + "px";
+        tutorialShades.bottom.style.cssText = "top:" + holeRect.bottom + "px;height:" + Math.max(0, vh - holeRect.bottom) + "px";
+        tutorialShades.left.style.cssText =
+          "top:" + holeRect.top + "px;height:" + Math.max(0, holeRect.bottom - holeRect.top) + "px;width:" + holeRect.left + "px";
         tutorialShades.right.style.cssText =
-          "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;left:" + right + "px;width:" + Math.max(0, vw - right) + "px";
+          "top:" +
+          holeRect.top +
+          "px;height:" +
+          Math.max(0, holeRect.bottom - holeRect.top) +
+          "px;left:" +
+          holeRect.right +
+          "px;width:" +
+          Math.max(0, vw - holeRect.right) +
+          "px";
       } else {
         // No target this step -- one shade covers the entire screen and
         // the other three collapse to nothing, rather than all four
@@ -1980,12 +2023,41 @@
         tutorialShades.right.style.cssText = "top:0;height:0;left:" + vw + "px;width:0";
       }
       if (tutorialBlurTargetEl) {
-        const br = tutorialBlurTargetEl.getBoundingClientRect();
+        // blockTargetClicks reuses the spotlight hole's own padded rect
+        // (so the click-blocked area exactly matches the visually
+        // exposed one); a plain blurTarget measures its own rect instead.
+        const br =
+          holeRect && tutorialBlurTargetEl === tutorialTargetEl
+            ? holeRect
+            : (() => {
+                const r = tutorialBlurTargetEl.getBoundingClientRect();
+                return { top: r.top, left: r.left, right: r.right, bottom: r.bottom };
+              })();
         tutorialBlurEl.style.cssText =
-          "top:" + Math.max(0, br.top) + "px;left:" + Math.max(0, br.left) + "px;width:" + Math.max(0, br.width) + "px;height:" + Math.max(0, br.height) + "px";
+          "top:" +
+          Math.max(0, br.top) +
+          "px;left:" +
+          Math.max(0, br.left) +
+          "px;width:" +
+          Math.max(0, br.right - br.left) +
+          "px;height:" +
+          Math.max(0, br.bottom - br.top) +
+          "px";
         tutorialBlurEl.hidden = false;
       } else {
         tutorialBlurEl.hidden = true;
+      }
+      // Caption: dead-center of the screen by default, or pinned 50px
+      // above a step's own textAnchor. `bottom` (not `top`) for the
+      // anchored case -- setting how far the text block's OWN bottom
+      // edge sits from the viewport's bottom pins that edge exactly 50px
+      // above the anchor regardless of how tall the text turns out to be
+      // once it wraps, with no need to measure the text block itself.
+      if (tutorialTextAnchorEl) {
+        const tr = tutorialTextAnchorEl.getBoundingClientRect();
+        tutorialTextEl.style.cssText = "top:auto;transform:none;bottom:" + Math.max(0, vh - tr.top + TUTORIAL_TEXT_ANCHOR_GAP) + "px";
+      } else {
+        tutorialTextEl.style.cssText = "bottom:auto;top:50%;transform:translateY(-50%)";
       }
     }
     function tutorialHandleResize() {
@@ -2004,6 +2076,13 @@
       tutorialTargetEl = null;
       tutorialAdvanceHandler = null;
     }
+    // Whether tapping the dark shade should advance/close this step --
+    // everything EXCEPT a step whose target requires the real click (it
+    // has one, and it isn't deliberately blocked). See TUTORIAL_STEPS'
+    // own comment for the reasoning.
+    function tutorialShadeAdvances(step) {
+      return !(step.target && !step.blockTargetClicks);
+    }
     function showTutorialStep(index) {
       const step = TUTORIAL_STEPS[index];
       if (!step) return;
@@ -2011,32 +2090,42 @@
       tutorialStep = index;
       tutorialTextEl.textContent = step.text || "";
       tutorialTargetEl = step.target ? el.querySelector(step.target) : null;
-      tutorialBlurTargetEl = step.blurTarget ? el.querySelector(step.blurTarget) : null;
+      tutorialTextAnchorEl = step.textAnchor ? el.querySelector(step.textAnchor) : null;
+      tutorialBlurTargetEl = step.blurTarget ? el.querySelector(step.blurTarget) : step.blockTargetClicks ? tutorialTargetEl : null;
+      tutorialBlurEl.classList.toggle("is-blurred", !!step.blurTarget);
+      tutorialShades.top.classList.toggle("is-heavy", !!step.heavyTint);
+      tutorialShades.bottom.classList.toggle("is-heavy", !!step.heavyTint);
+      tutorialShades.left.classList.toggle("is-heavy", !!step.heavyTint);
+      tutorialShades.right.classList.toggle("is-heavy", !!step.heavyTint);
+      tutorialEl.classList.toggle("shade-advances", tutorialShadeAdvances(step));
       if (tutorialTargetEl) {
         tutorialTargetEl.classList.add("fractal-tutorial-flash");
         // "The visitor did the thing this step asked" advances to the
-        // next step if there is one, otherwise ends the tutorial --
-        // covers step 1 handing off to step 2 (and so on) the same way
-        // step 1 alone used to just close outright as the last/only step.
+        // next step if there is one, otherwise ends the tutorial. Never
+        // actually reachable when blockTargetClicks is set -- the
+        // transparent layer covering the exact same area (see
+        // tutorialBlurTargetEl above) swallows the click first -- but
+        // harmless to still attach; it simply never fires there.
         const nextIndex = index + 1;
         tutorialAdvanceHandler = TUTORIAL_STEPS[nextIndex] ? () => showTutorialStep(nextIndex) : closeTutorial;
         tutorialTargetEl.addEventListener("click", tutorialAdvanceHandler, { once: true });
       }
       positionTutorialSpotlight();
       // A step whose blur/spotlight lands on something that just started
-      // its own CSS-transitioned open (e.g. step 2's blurTarget is the
-      // settings panel step 1's target click also opens) is still mid-
-      // transition at this exact synchronous point, so the rect measured
-      // just above can be stale -- both listeners below just re-measure
-      // once that settles. transitionend is the precise signal (fires
-      // exactly when it actually finishes, not a guess at how long that
-      // takes); the timeout is only a fallback for a step whose element
-      // was already in its resting state to begin with, where transform
-      // never actually changes and so transitionend never fires at all.
-      // Both are harmless/redundant on a step whose target(s) aren't
-      // animating either way.
-      if (tutorialBlurTargetEl) {
-        tutorialBlurTargetEl.addEventListener(
+      // its own CSS-transitioned open (e.g. step 2's textAnchor sits
+      // inside the settings panel step 1's target click also opens) is
+      // still mid-transition at this exact synchronous point, so the
+      // rect measured just above can be stale -- both listeners below
+      // just re-measure once that settles. transitionend is the precise
+      // signal (fires exactly when it actually finishes, not a guess at
+      // how long that takes); the timeout is only a fallback for a step
+      // whose element was already in its resting state to begin with,
+      // where transform never actually changes and so transitionend
+      // never fires at all. Both are harmless/redundant on a step whose
+      // target(s) aren't animating either way.
+      const settleEl = tutorialBlurTargetEl || tutorialTextAnchorEl;
+      if (settleEl) {
+        settleEl.addEventListener(
           "transitionend",
           () => {
             if (tutorialStep === index) positionTutorialSpotlight();
@@ -2071,6 +2160,7 @@
     function closeTutorial() {
       if (!isTutorialOpen()) return false;
       clearTutorialStepTarget();
+      tutorialTextAnchorEl = null;
       tutorialBlurTargetEl = null;
       tutorialBlurEl.hidden = true;
       tutorialStep = -1;
@@ -2082,11 +2172,20 @@
     closeActiveTutorial = closeTutorial;
     el.querySelector("[data-tutorial-open]").addEventListener("click", openTutorial);
     tutorialEl.querySelector("[data-tutorial-close]").addEventListener("click", closeTutorial);
-    // Deliberately NOT dismissible by tapping the dark shaded area --
-    // only the X above and the highlighted target itself (see
-    // tutorialAdvanceHandler in showTutorialStep) close it, so a new
+    // Tapping the dark shade advances/closes too, EXCEPT on a step whose
+    // target requires the real click instead (step 1 -- see
+    // tutorialShadeAdvances' own comment on TUTORIAL_STEPS above): a new
     // visitor can't accidentally swipe/tap their way past the one thing
-    // this step is asking them to notice.
+    // that step is asking them to notice, but a purely explanatory step
+    // (or one whose highlighted target is deliberately inert) has no
+    // such thing to protect, so any tap moves on.
+    tutorialEl.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-tutorial-shade]")) return;
+      if (!tutorialShadeAdvances(TUTORIAL_STEPS[tutorialStep])) return;
+      const nextIndex = tutorialStep + 1;
+      if (TUTORIAL_STEPS[nextIndex]) showTutorialStep(nextIndex);
+      else closeTutorial();
+    });
     toggleBtn.addEventListener("click", () => {
       cameraRollPanel.classList.remove("is-open");
       panel.classList.toggle("is-open");

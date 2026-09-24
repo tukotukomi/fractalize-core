@@ -943,14 +943,29 @@
   left: 0;
   width: 100%;
   background: rgba(0, 0, 0, 0.75);
-  /* Not dismissible by tapping (see buildFractal's own comment on why),
-     so no pointer cursor implying it is. */
+  /* Only some steps let tapping the shade advance/close (see
+     tutorialShadeAdvances in buildFractal) -- the pointer cursor only
+     applies then, via the modifier below, so it never implies
+     clickability on a step where it wouldn't do anything. */
   cursor: default;
   /* Re-enables hit-testing that .fractal-tutorial's own pointer-events:
      none turned off -- these are the actual dark, opaque area, so they
      should still block a click from reaching whatever's behind them
-     (the canvas, other toolbar buttons), just no longer act on it. */
+     (the canvas, other toolbar buttons), whether or not that click also
+     advances the tutorial. */
   pointer-events: auto;
+}
+
+.fractal-tutorial.shade-advances .fractal-tutorial-shade {
+  cursor: pointer;
+}
+
+/* A step's optional heavyTint (see TUTORIAL_STEPS) swaps the usual 75%
+   for something much closer to opaque -- for de-emphasizing the whole
+   screen, target included if it has one, in favor of its own caption,
+   rather than the usual "still see roughly what's there" dimming. */
+.fractal-tutorial-shade.is-heavy {
+  background: rgba(0, 0, 0, 0.93);
 }
 
 /* Top/bottom span the full width; left/right (positioned/sized entirely
@@ -967,20 +982,26 @@
   width: auto;
 }
 
-/* A step's optional blurTarget (see TUTORIAL_STEPS/positionTutorialSpotlight
-   in fractalize-core.js) -- positioned/sized to exactly that element's
-   own rect. backdrop-filter blurs whatever's actually painted behind it
-   in place (that element's real content, already dimmed by a shade
-   underneath if one overlaps it too), which is enough on its own to
-   make text there illegible -- no extra tint of its own needed. Blocks
-   clicks to whatever it's covering (pointer-events: auto overrides
-   .fractal-tutorial's own none) -- while a step is treating that area as
-   inert background rather than something to interact with, it shouldn't
-   still be operable underneath the blur. */
+/* An extra layer positioned/sized to exactly one element's own rect --
+   either a step's blurTarget, or (with blockTargetClicks instead) the
+   same rect as the spotlight hole itself. Transparent and invisible by
+   default, its only job then is pointer-events: auto (overriding
+   .fractal-tutorial's own none) to block clicks to whatever it's
+   covering -- e.g. a hole shown off but deliberately kept inert. The
+   .is-blurred modifier is what actually makes it visible: backdrop-
+   filter blurs whatever's actually painted behind it in place (that
+   element's real content, already dimmed by a shade underneath if one
+   overlaps it too), enough on its own to make text there illegible with
+   no extra tint of its own needed. Not used by any current step (see
+   TUTORIAL_STEPS' own comment), but kept ready for one that wants it. */
 .fractal-tutorial-blur {
   position: absolute;
   z-index: 1;
+  cursor: default;
   pointer-events: auto;
+}
+
+.fractal-tutorial-blur.is-blurred {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -991,11 +1012,12 @@
 
 .fractal-tutorial-text {
   position: absolute;
-  inset: 0;
+  /* top/bottom/transform are set inline per step by
+     positionTutorialSpotlight -- dead-center of the screen by default,
+     or pinned a fixed distance above a step's own textAnchor. */
+  left: 0;
+  right: 0;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   margin: 0;
   padding: 0 15%;
   text-align: center;
