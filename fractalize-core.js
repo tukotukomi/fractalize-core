@@ -1338,11 +1338,31 @@
       // picker and the reactivity sliders, so no separate target is
       // needed for the two states, only the caption differs.
       target: ".fractal-controls-audio-section",
+      // Unlike every other real/unblocked target so far, this one isn't
+      // asking the visitor to do anything specific with the reactivity
+      // sliders in particular -- most should just leave them at their
+      // defaults -- so a tap anywhere moves on too, not only a tap
+      // inside the highlighted area itself.
+      allowShadeAdvance: true,
       textAnchor: ".fractal-controls",
       text: (root) =>
         root.querySelector("[data-live-audio-only]").hidden
           ? "Enabling live audio input will sync fractalization with your music."
           : "Live audio input settings change inputs, music sensitivity, and smoothness.",
+    },
+    {
+      // Hidden entirely unless a host page opted into the phone remote
+      // (see setRemoteRelay) -- tuckermills.com never does, so this step
+      // is automatically skipped there (see the "target isn't actually
+      // rendered" check in showTutorialStep) rather than spotlighting a
+      // button that doesn't exist on screen.
+      target: ".fractal-remote-open",
+      // Showing it off, not inviting a mid-tutorial detour into pairing
+      // a phone -- blockTargetClicks also means this already advances on
+      // any tap (see tutorialShadeAdvances), same as step 3's Randomizer.
+      blockTargetClicks: true,
+      textAnchor: ".fractal-controls",
+      text: "Come back after the tutorial and you can even use your phone as a remote!",
     },
   ];
 
@@ -2114,14 +2134,28 @@
     }
     // Whether tapping the dark shade should advance/close this step --
     // everything EXCEPT a step whose target requires the real click (it
-    // has one, and it isn't deliberately blocked). See TUTORIAL_STEPS'
-    // own comment for the reasoning.
+    // has one, and it isn't deliberately blocked) -- unless the step
+    // opts back in anyway via allowShadeAdvance (see TUTORIAL_STEPS'
+    // own comments for both).
     function tutorialShadeAdvances(step) {
-      return !(step.target && !step.blockTargetClicks);
+      return !!step.allowShadeAdvance || !(step.target && !step.blockTargetClicks);
     }
     function showTutorialStep(index) {
       const step = TUTORIAL_STEPS[index];
       if (!step) return;
+      // A step's target might not actually be on screen right now (the
+      // phone-remote button, e.g., only exists when a host page opted
+      // into that feature -- see TUTORIAL_STEPS' own comment) -- skip
+      // straight past rather than spotlighting nothing.
+      if (step.target) {
+        const probe = el.querySelector(step.target);
+        if (!probe || probe.offsetParent === null) {
+          const next = index + 1;
+          if (TUTORIAL_STEPS[next]) showTutorialStep(next);
+          else closeTutorial();
+          return;
+        }
+      }
       clearTutorialStepTarget();
       tutorialStep = index;
       // text can be a plain string, or (for a step whose wording depends
