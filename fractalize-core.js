@@ -1317,13 +1317,13 @@
     {
       target: null,
       heavyTint: true,
-      textAnchor: '[data-setting="fractalPower"]',
-      text: "Part of the fun is exploring how different sliders and effects change your fractals.",
+      textAnchor: ".fractal-controls",
+      text: "Let's explore a few sections of Fractal Control.",
     },
     {
       target: ".fractal-controls-randomizer",
       blockTargetClicks: true,
-      textAnchor: '[data-setting="fractalPower"]',
+      textAnchor: ".fractal-controls",
       text: "The Randomizer helps make live performances more dynamic.",
     },
   ];
