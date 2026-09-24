@@ -967,6 +967,28 @@
   width: auto;
 }
 
+/* A step's optional blurTarget (see TUTORIAL_STEPS/positionTutorialSpotlight
+   in fractalize-core.js) -- positioned/sized to exactly that element's
+   own rect. backdrop-filter blurs whatever's actually painted behind it
+   in place (that element's real content, already dimmed by a shade
+   underneath if one overlaps it too), which is enough on its own to
+   make text there illegible -- no extra tint of its own needed. Blocks
+   clicks to whatever it's covering (pointer-events: auto overrides
+   .fractal-tutorial's own none) -- while a step is treating that area as
+   inert background rather than something to interact with, it shouldn't
+   still be operable underneath the blur. */
+.fractal-tutorial-blur {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.fractal-tutorial-blur[hidden] {
+  display: none;
+}
+
 .fractal-tutorial-text {
   position: absolute;
   inset: 0;

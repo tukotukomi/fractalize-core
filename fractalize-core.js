@@ -1290,7 +1290,17 @@
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20px" height="20px">' +
     '<text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" font-family="system-ui, sans-serif" fill="#e3e3e3">?</text>' +
     "</svg>";
-  const TUTORIAL_STEPS = [{ target: ".image-fractal-settings-toggle", text: "Tap here to open Fractalizer Control." }];
+  const TUTORIAL_STEPS = [
+    { target: ".image-fractal-settings-toggle", text: "Tap here to open Fractalizer Control." },
+    // No target (no spotlight hole -- the dark tint covers the whole
+    // screen uniformly) and no caption text yet, both to be filled in
+    // once this step's own interaction is designed. blurTarget instead
+    // adds a second effect: an extra blurred layer over that element's
+    // own on-screen area specifically, independent of and on top of the
+    // full-screen tint -- see positionTutorialSpotlight/tutorialBlurEl
+    // below for how the two combine.
+    { target: null, blurTarget: ".fractal-controls", text: "" },
+  ];
 
   // Always starts as the open icon -- setupRandomizerLocks (see
   // buildFractal) sets the real initial state (icon + aria-pressed) once
@@ -1858,6 +1868,13 @@
       '<div class="fractal-tutorial-shade" data-tutorial-shade="bottom"></div>' +
       '<div class="fractal-tutorial-shade" data-tutorial-shade="left"></div>' +
       '<div class="fractal-tutorial-shade" data-tutorial-shade="right"></div>' +
+      // A step's optional blurTarget (see TUTORIAL_STEPS) positions this
+      // over that element's own rect -- backdrop-filter blurs whatever
+      // is actually painted behind it (that element's own real content,
+      // already dimmed by the shade tint if it also overlaps one),
+      // scrambling text there illegible without needing a hole/gap the
+      // way the spotlight target does.
+      '<div class="fractal-tutorial-blur" data-tutorial-blur hidden></div>' +
       '<p class="fractal-tutorial-text" data-tutorial-text></p>' +
       '<button type="button" class="fractal-tutorial-close" data-tutorial-close aria-label="Close tutorial">' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18px" height="18px" fill="none" stroke="#e3e3e3" stroke-width="2" stroke-linecap="round">' +
@@ -1918,6 +1935,7 @@
     // index into TUTORIAL_STEPS, or -1 while closed.
     const tutorialEl = el.querySelector("[data-tutorial]");
     const tutorialTextEl = tutorialEl.querySelector("[data-tutorial-text]");
+    const tutorialBlurEl = tutorialEl.querySelector("[data-tutorial-blur]");
     const tutorialShades = {
       top: tutorialEl.querySelector('[data-tutorial-shade="top"]'),
       bottom: tutorialEl.querySelector('[data-tutorial-shade="bottom"]'),
@@ -1926,50 +1944,109 @@
     };
     let tutorialStep = -1;
     let tutorialTargetEl = null;
+    let tutorialBlurTargetEl = null;
     let tutorialAdvanceHandler = null;
     function isTutorialOpen() {
       return tutorialStep !== -1;
     }
-    // Recomputes the four shade rects from the current step's target
-    // every call rather than caching anything -- cheap (one
-    // getBoundingClientRect + four style writes), and needs to re-run on
-    // resize/orientation-change/fullscreen-toggle anyway, so there's no
-    // real "unchanged" case worth special-casing.
+    // Recomputes the shade rects (and the blur layer's own rect, if this
+    // step has one) from the current step every call rather than caching
+    // anything -- cheap, and needs to re-run on resize/orientation-
+    // change/fullscreen-toggle anyway, so there's no real "unchanged"
+    // case worth special-casing.
     const TUTORIAL_SPOTLIGHT_PAD = 8;
     function positionTutorialSpotlight() {
-      if (!tutorialTargetEl) return;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const r = tutorialTargetEl.getBoundingClientRect();
-      const top = Math.max(0, r.top - TUTORIAL_SPOTLIGHT_PAD);
-      const left = Math.max(0, r.left - TUTORIAL_SPOTLIGHT_PAD);
-      const bottom = Math.min(vh, r.bottom + TUTORIAL_SPOTLIGHT_PAD);
-      const right = Math.min(vw, r.right + TUTORIAL_SPOTLIGHT_PAD);
-      tutorialShades.top.style.cssText = "height:" + Math.max(0, top) + "px";
-      tutorialShades.bottom.style.cssText = "top:" + bottom + "px;height:" + Math.max(0, vh - bottom) + "px";
-      tutorialShades.left.style.cssText = "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;width:" + Math.max(0, left) + "px";
-      tutorialShades.right.style.cssText =
-        "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;left:" + right + "px;width:" + Math.max(0, vw - right) + "px";
+      if (tutorialTargetEl) {
+        const r = tutorialTargetEl.getBoundingClientRect();
+        const top = Math.max(0, r.top - TUTORIAL_SPOTLIGHT_PAD);
+        const left = Math.max(0, r.left - TUTORIAL_SPOTLIGHT_PAD);
+        const bottom = Math.min(vh, r.bottom + TUTORIAL_SPOTLIGHT_PAD);
+        const right = Math.min(vw, r.right + TUTORIAL_SPOTLIGHT_PAD);
+        tutorialShades.top.style.cssText = "height:" + Math.max(0, top) + "px";
+        tutorialShades.bottom.style.cssText = "top:" + bottom + "px;height:" + Math.max(0, vh - bottom) + "px";
+        tutorialShades.left.style.cssText = "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;width:" + Math.max(0, left) + "px";
+        tutorialShades.right.style.cssText =
+          "top:" + top + "px;height:" + Math.max(0, bottom - top) + "px;left:" + right + "px;width:" + Math.max(0, vw - right) + "px";
+      } else {
+        // No target this step -- one shade covers the entire screen and
+        // the other three collapse to nothing, rather than all four
+        // somehow tiling/overlapping (which would double up their own
+        // opacity anywhere they touched).
+        tutorialShades.top.style.cssText = "height:" + vh + "px";
+        tutorialShades.bottom.style.cssText = "top:" + vh + "px;height:0";
+        tutorialShades.left.style.cssText = "top:0;height:0;width:0";
+        tutorialShades.right.style.cssText = "top:0;height:0;left:" + vw + "px;width:0";
+      }
+      if (tutorialBlurTargetEl) {
+        const br = tutorialBlurTargetEl.getBoundingClientRect();
+        tutorialBlurEl.style.cssText =
+          "top:" + Math.max(0, br.top) + "px;left:" + Math.max(0, br.left) + "px;width:" + Math.max(0, br.width) + "px;height:" + Math.max(0, br.height) + "px";
+        tutorialBlurEl.hidden = false;
+      } else {
+        tutorialBlurEl.hidden = true;
+      }
     }
     function tutorialHandleResize() {
       if (isTutorialOpen()) positionTutorialSpotlight();
     }
+    // Undoes whatever the CURRENT step's own spotlight target set up --
+    // shared by showTutorialStep (stepping away from one target to the
+    // next) and closeTutorial (leaving the tutorial entirely), so
+    // neither one can leave a stray flash/listener behind on the old
+    // target.
+    function clearTutorialStepTarget() {
+      if (tutorialTargetEl) {
+        tutorialTargetEl.classList.remove("fractal-tutorial-flash");
+        if (tutorialAdvanceHandler) tutorialTargetEl.removeEventListener("click", tutorialAdvanceHandler);
+      }
+      tutorialTargetEl = null;
+      tutorialAdvanceHandler = null;
+    }
     function showTutorialStep(index) {
       const step = TUTORIAL_STEPS[index];
       if (!step) return;
+      clearTutorialStepTarget();
       tutorialStep = index;
-      tutorialTextEl.textContent = step.text;
-      tutorialTargetEl = el.querySelector(step.target);
+      tutorialTextEl.textContent = step.text || "";
+      tutorialTargetEl = step.target ? el.querySelector(step.target) : null;
+      tutorialBlurTargetEl = step.blurTarget ? el.querySelector(step.blurTarget) : null;
       if (tutorialTargetEl) {
         tutorialTargetEl.classList.add("fractal-tutorial-flash");
-        // Only one step exists right now, so "the visitor did the thing
-        // this step asked" and "the tutorial is over" are the same
-        // event -- a future step 2 would swap this for "advance to the
-        // next step instead, unless this is the last one."
-        tutorialAdvanceHandler = closeTutorial;
+        // "The visitor did the thing this step asked" advances to the
+        // next step if there is one, otherwise ends the tutorial --
+        // covers step 1 handing off to step 2 (and so on) the same way
+        // step 1 alone used to just close outright as the last/only step.
+        const nextIndex = index + 1;
+        tutorialAdvanceHandler = TUTORIAL_STEPS[nextIndex] ? () => showTutorialStep(nextIndex) : closeTutorial;
         tutorialTargetEl.addEventListener("click", tutorialAdvanceHandler, { once: true });
       }
       positionTutorialSpotlight();
+      // A step whose blur/spotlight lands on something that just started
+      // its own CSS-transitioned open (e.g. step 2's blurTarget is the
+      // settings panel step 1's target click also opens) is still mid-
+      // transition at this exact synchronous point, so the rect measured
+      // just above can be stale -- both listeners below just re-measure
+      // once that settles. transitionend is the precise signal (fires
+      // exactly when it actually finishes, not a guess at how long that
+      // takes); the timeout is only a fallback for a step whose element
+      // was already in its resting state to begin with, where transform
+      // never actually changes and so transitionend never fires at all.
+      // Both are harmless/redundant on a step whose target(s) aren't
+      // animating either way.
+      if (tutorialBlurTargetEl) {
+        tutorialBlurTargetEl.addEventListener(
+          "transitionend",
+          () => {
+            if (tutorialStep === index) positionTutorialSpotlight();
+          },
+          { once: true }
+        );
+      }
+      setTimeout(() => {
+        if (tutorialStep === index) positionTutorialSpotlight();
+      }, 320);
       tutorialEl.hidden = false;
       syncPanelOpenClass();
     }
@@ -1993,12 +2070,9 @@
     // this closure need that.
     function closeTutorial() {
       if (!isTutorialOpen()) return false;
-      if (tutorialTargetEl) {
-        tutorialTargetEl.classList.remove("fractal-tutorial-flash");
-        if (tutorialAdvanceHandler) tutorialTargetEl.removeEventListener("click", tutorialAdvanceHandler);
-      }
-      tutorialTargetEl = null;
-      tutorialAdvanceHandler = null;
+      clearTutorialStepTarget();
+      tutorialBlurTargetEl = null;
+      tutorialBlurEl.hidden = true;
       tutorialStep = -1;
       tutorialEl.hidden = true;
       window.removeEventListener("resize", tutorialHandleResize);
