@@ -1331,6 +1331,19 @@
       textAnchor: ".fractal-controls",
       text: "Part of the fun is learning how different slider combos create new fractals!",
     },
+    {
+      // Same selector either way (see its own comment in buildFractal's
+      // markup) -- with live audio off this naturally shrinks to just
+      // the checkbox/label row; on, it grows to include the device
+      // picker and the reactivity sliders, so no separate target is
+      // needed for the two states, only the caption differs.
+      target: ".fractal-controls-audio-section",
+      textAnchor: ".fractal-controls",
+      text: (root) =>
+        root.querySelector("[data-live-audio-only]").hidden
+          ? "Enabling live audio input will sync fractalization with your music."
+          : "Live audio input settings change inputs, music sensitivity, and smoothness.",
+    },
   ];
 
   // Always starts as the open icon -- setupRandomizerLocks (see
@@ -1823,6 +1836,16 @@
       // Filter live audio section: sits at the very bottom of the panel
       // under its own divider.
       '<hr class="fractal-controls-divider">' +
+      // Wraps both pieces below -- no styling of its own (same plain-
+      // wrapper pattern as .fractal-controls-sliders above), it just
+      // gives the tutorial a single selector for "the live audio
+      // section" that's correct in both states without needing two
+      // different targets: with live audio off, [data-live-audio-only]
+      // is hidden and contributes no height, so this wrapper's own
+      // bounding box already shrinks down to just the checkbox/label
+      // row on its own; with it on, the box naturally grows to include
+      // the device picker and the reactivity sliders too.
+      '<div class="fractal-controls-audio-section">' +
       '<div data-live-audio-panel>' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="liveAudio"> Live audio input</label>' +
@@ -1845,6 +1868,7 @@
       '<input type="range" data-setting="musicReactivityPct" min="0" max="100" step="5"></div>' +
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
+      "</div>" +
       "</div>" +
       '<button type="button" class="fractal-remote-open" data-remote-open hidden>Control from your phone</button>' +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
@@ -2100,8 +2124,20 @@
       if (!step) return;
       clearTutorialStepTarget();
       tutorialStep = index;
-      tutorialTextEl.textContent = step.text || "";
+      // text can be a plain string, or (for a step whose wording depends
+      // on other live state, e.g. step 5's live-audio on/off) a function
+      // taking this fractal's own root element and returning the string
+      // -- called fresh every time this step is (re-)shown, so it always
+      // reflects the CURRENT state, not whatever it was when the
+      // tutorial first opened.
+      tutorialTextEl.textContent = (typeof step.text === "function" ? step.text(el) : step.text) || "";
       tutorialTargetEl = step.target ? el.querySelector(step.target) : null;
+      // A target that lives inside the scrollable settings panel (steps
+      // 3 onward) can easily sit below the fold, especially the further
+      // down the panel it is -- an instant jump (not smooth) so the
+      // rect positionTutorialSpotlight reads right after is already
+      // correct, with no scroll-animation settle time to account for.
+      if (tutorialTargetEl) tutorialTargetEl.scrollIntoView({ block: "center" });
       tutorialTextAnchorEl = step.textAnchor ? el.querySelector(step.textAnchor) : null;
       tutorialBlurTargetEl = step.blurTarget ? el.querySelector(step.blurTarget) : step.blockTargetClicks ? tutorialTargetEl : null;
       tutorialBlurEl.classList.toggle("is-blurred", !!step.blurTarget);
