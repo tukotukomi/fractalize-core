@@ -1326,6 +1326,11 @@
       textAnchor: ".fractal-controls",
       text: "The Randomizer helps make live performances more dynamic.",
     },
+    {
+      target: ".fractal-controls-sliders",
+      textAnchor: ".fractal-controls",
+      text: "Part of the fun is learning how different slider combos create new fractals!",
+    },
   ];
 
   // Always starts as the open icon -- setupRandomizerLocks (see
@@ -1778,6 +1783,12 @@
       "</div>" +
       '<p class="fractal-controls-hint">Lock fractal sliders to prevent them from being changed by the randomizer.</p>' +
       "</div>" +
+      // Wraps just these three -- no styling of its own (a plain block
+      // div doesn't change the rows' own spacing/layout at all), it
+      // exists purely to give the tutorial's step 4 a single selector to
+      // spotlight the whole slider section as one unit rather than three
+      // separate rows.
+      '<div class="fractal-controls-sliders">' +
       '<div class="fractal-controls-row"><label>Fractal shape<span class="fractal-controls-value" data-value-for="fractalPower"></span></label>' +
       '<div class="fractal-controls-slider-row">' +
       lockButtonHtml("fractalPower", "Fractal shape") +
@@ -1794,6 +1805,7 @@
       '<input type="range" data-setting="cycleDurationSec" min="6" max="60" step="1">' +
       "</div>" +
       '<p class="fractal-controls-hint">How long one zoom cycle lasts in calm moments. Speed surge shortens it while music plays.</p></div>' +
+      "</div>" +
       '<hr class="fractal-controls-divider">' +
       '<div class="fractal-controls-row fractal-controls-toggle-row">' +
       '<label><input type="checkbox" data-toggle="speedSurgeEnabled"> Speed surge (music speeds up the cycle)</label>' +
