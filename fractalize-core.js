@@ -1313,12 +1313,12 @@
     '<text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" font-family="system-ui, sans-serif" fill="#e3e3e3">?</text>' +
     "</svg>";
   const TUTORIAL_STEPS = [
-    { target: ".image-fractal-settings-toggle", text: "Tap here to open Fractalizer Control." },
+    { target: ".image-fractal-settings-toggle", text: "Tap here to control your fractalization." },
     {
       target: null,
       heavyTint: true,
       textAnchor: ".fractal-controls",
-      text: "Let's explore a few sections of Fractal Control.",
+      text: "Let's explore a few fractal settings.",
     },
     {
       target: ".fractal-controls-randomizer",
