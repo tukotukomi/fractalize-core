@@ -704,7 +704,8 @@
   gap: 8px;
 }
 
-.fractal-controls-randomizer-pill {
+.fractal-controls-randomizer-pill,
+.fractal-controls-quality-pill {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -718,11 +719,13 @@
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.fractal-controls-randomizer-pill:hover {
+.fractal-controls-randomizer-pill:hover,
+.fractal-controls-quality-pill:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
-.fractal-controls-randomizer-pill.is-active {
+.fractal-controls-randomizer-pill.is-active,
+.fractal-controls-quality-pill.is-active {
   background: #fff;
   color: #111;
   border-color: #fff;
@@ -1192,4 +1195,12 @@
   background: transparent;
   color: #fff;
   border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* --- Quality row (settings panel): pill choices share the Randomizer
+   timer pills' look above; this is just their wrapping row. ----------- */
+.fractal-controls-quality-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

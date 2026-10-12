@@ -130,6 +130,11 @@
   // from a visitor who closed the fractal mid-tutorial instead of
   // dismissing it first.
   let closeActiveTutorial = null;
+  // Same pattern again, for the settings panel's Quality row (built once
+  // in buildFractal): the render session calls this with the rung and
+  // canvas scale actually in effect whenever either changes, so the row
+  // can show what Auto (or a preset) really resolved to on this device.
+  let qualityUiRefresh = null;
 
   const LIVE_AUDIO_DEVICE_KEY = "tuckerMillsLiveAudioDeviceId";
 
@@ -1128,15 +1133,21 @@
     loadImage(srcOrImgEl);
     visualizerSwitchImage = loadImage;
 
-    // Canvas backing store follows the viewport (CSS px * dpr, dpr capped:
-    // the warp is soft, so full retina resolution isn't worth the fill
-    // cost). Re-run on window resize and fullscreen changes.
+    // Canvas backing store follows the viewport (CSS px * dpr). The cap
+    // follows the fractal's own Quality setting (same saved mode, so one
+    // choice covers both views) -- this shader is far cheaper than the
+    // fractal's per-pixel iteration loop, so even "Auto" can afford 2x
+    // here, and High goes native. 1.5x is what every visitor used to get.
+    // Re-run on window resize and fullscreen changes.
     let viewW = 1;
     let viewH = 1;
     function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const modeCap = { performance: 1.5, balanced: 2, auto: 2, high: 3 }[currentQualityMode()] || 2;
       viewW = Math.max(1, window.innerWidth);
       viewH = Math.max(1, window.innerHeight);
+      let dpr = Math.min(window.devicePixelRatio || 1, modeCap);
+      // Same total-pixel budget as the fractal canvas (never below 1x).
+      dpr = Math.max(1, Math.min(dpr, Math.sqrt(QUALITY_MAX_PIXELS / (viewW * viewH))));
       canvas.width = Math.round(viewW * dpr);
       canvas.height = Math.round(viewH * dpr);
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -1236,7 +1247,71 @@
   // inject it automatically). One commit behind true HEAD is expected:
   // the commit that bumps this string can't know its own hash in
   // advance, so it always reflects the *previous* push.
-  const FRACTAL_VERSION = "vedc950b";
+  const FRACTAL_VERSION = "v83d3b30";
+
+  // Render quality: how many pixels the fractal canvas gets, and how many
+  // escape-time iterations the shader runs per pixel before giving up.
+  // Both cost GPU time -- resolution roughly with scale^2, iterations
+  // linearly -- so they move together up one ladder instead of being
+  // independent knobs. Why each matters (measured, not guessed): the
+  // canvas used to be pinned at 1 pixel per CSS pixel, which on a
+  // 3x-density phone is a ninth of the screen's pixels, upscaled and
+  // soft; and at 60 iterations a large share of slowly-escaping points
+  // are still wandering chaotically when the loop gives up, so they're
+  // sampled as pure noise instead of resolving into the photo (120
+  // iterations turns those regions into readable detail).
+  //   scale -- canvas pixels per CSS pixel; clamped to the display's own
+  //            devicePixelRatio (rendering above native is wasted work)
+  //            and to a total-pixel budget, see resize() in the session.
+  //   iter  -- the shader's iteration cap (its loop bound is 150).
+  // Rung 0 is exactly what every visitor had before this existed.
+  const QUALITY_LADDER = [
+    { scale: 1, iter: 60 },
+    { scale: 1, iter: 90 },
+    { scale: 1.5, iter: 90 },
+    { scale: 2, iter: 90 },
+    { scale: 2, iter: 120 },
+    { scale: 3, iter: 120 },
+  ];
+  const QUALITY_MODES = ["auto", "performance", "balanced", "high"];
+  // The fixed rung each manual preset pins. "balanced" is 2x/90 -- on
+  // a typical phone mirrored to a 1080p projector that already matches
+  // the output resolution.
+  const QUALITY_PRESET_STEP = { performance: 0, balanced: 3, high: 5 };
+  // Upper bound on canvas pixels (about one 4K frame) -- keeps a
+  // high-density desktop window from quietly asking for a canvas several
+  // times that, and keeps phone GPU memory sane.
+  const QUALITY_MAX_PIXELS = 3840 * 2160;
+
+  // The saved quality mode, even before the fractal has ever been built
+  // (the visualizer can open first, and fractalSettings is only loaded by
+  // the fractal's own panel) -- falls back to reading it straight from
+  // storage, then to "auto".
+  function currentQualityMode() {
+    let mode = fractalSettings ? fractalSettings.qualityMode : null;
+    if (!mode) {
+      try {
+        const saved = JSON.parse(localStorage.getItem("tuckerMillsFractalSettings") || "{}");
+        mode = saved && saved.qualityMode;
+      } catch (e) {}
+    }
+    return QUALITY_MODES.indexOf(mode) === -1 ? "auto" : mode;
+  }
+
+  // The rung currently in effect, resolved from the saved mode (and, in
+  // Auto, wherever the adaptive controller last left off). Read fresh by
+  // resize()/frame()/the scorer rather than cached across calls so a
+  // mode change from the panel takes effect on the very next one.
+  function currentQualityRung() {
+    const mode = fractalSettings ? fractalSettings.qualityMode : "auto";
+    let step;
+    if (mode === "performance" || mode === "balanced" || mode === "high") step = QUALITY_PRESET_STEP[mode];
+    else step = fractalSettings ? fractalSettings.qualityAutoStep : 3;
+    step = Math.max(0, Math.min(QUALITY_LADDER.length - 1, step | 0));
+    const rung = QUALITY_LADDER[step];
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    return { step, scale: Math.min(rung.scale, dpr), iter: rung.iter };
+  }
 
   // Windowed mode: the fullscreen toolbar's "exit fullscreen" / "enter
   // fullscreen" button (see buildFractal's markup and updateWindowedToggle
@@ -1442,18 +1517,15 @@
     // randomizable slider needs no migration to be unlocked by default
     // for visitors who already have settings saved.
     randomizerLocks: {},
-    // Trades visual thoroughness for raw frame rate on slower machines:
-    // caps canvas resolution to 1x device-pixel-ratio (see resize()),
-    // halves the shader's per-pixel iteration budget (see maxIter in
-    // frame()), searches fewer/cheaper candidates in injectFromImage
-    // (the biggest single cost -- a synchronous CPU scoring loop that
-    // runs on every cycle wrap, RANDOMIZE NOW, and Fractal-shape drag),
-    // and drops the settings/camera-roll panels' backdrop-filter blur
-    // (continuously recomputed over an animating full-bleed canvas --
-    // see resize()'s own comment on why that's expensive). Always on --
-    // there is no panel toggle for it, and loadFractalSettings forces it
-    // true so an old saved false is ignored.
-    lowPerformanceMode: true,
+    // Render quality -- see QUALITY_LADDER/currentQualityRung below for
+    // what each step actually changes (canvas resolution + the shader's
+    // iteration cap). "auto" climbs/descends that ladder on its own from
+    // measured frame times; the other three pin it to one rung.
+    // qualityAutoStep is just where Auto left off last time (per browser,
+    // so a phone and a desktop each remember their own), so reopening
+    // starts near the right answer rather than re-learning it.
+    qualityMode: "auto",
+    qualityAutoStep: 3,
     // Music-driven options (Smooth mode only, all need live audio to have
     // any effect). Off by default so nothing changes for existing
     // visitors until they opt in. speedSurge speeds the cycle clock up
@@ -1483,11 +1555,14 @@
     try {
       const raw = localStorage.getItem(FRACTAL_SETTINGS_KEY);
       const parsed = raw ? JSON.parse(raw) : {};
-      return Object.assign({}, FRACTAL_DEFAULTS, parsed, {
-        lowPerformanceMode: true,
+      const merged = Object.assign({}, FRACTAL_DEFAULTS, parsed, {
         // No slider anymore -- ignore any previously saved value.
         bgSaturationPct: FRACTAL_DEFAULTS.bgSaturationPct,
       });
+      // A stale/hand-edited value shouldn't be able to wedge rendering.
+      if (QUALITY_MODES.indexOf(merged.qualityMode) === -1) merged.qualityMode = "auto";
+      merged.qualityAutoStep = Math.max(0, Math.min(QUALITY_LADDER.length - 1, Math.round(Number(merged.qualityAutoStep) || 0)));
+      return merged;
     } catch (e) {
       return Object.assign({}, FRACTAL_DEFAULTS);
     }
@@ -1889,6 +1964,22 @@
       '<div class="fractal-controls-row"><label>Reactivity smoothing <span class="fractal-controls-value" data-value-for="reactivitySmoothingPct"></span></label>' +
       '<input type="range" data-setting="reactivitySmoothingPct" min="0" max="100" step="5"></div>' +
       "</div>" +
+      "</div>" +
+      // Render quality (see QUALITY_LADDER). Pills, not a slider -- four
+      // named choices, one of which is "let the device decide." The
+      // readout beside the label shows the resolution scale and
+      // iteration cap actually in effect right now (what Auto resolved
+      // to, or what a preset maps to on this display).
+      '<hr class="fractal-controls-divider">' +
+      '<div class="fractal-controls-row fractal-controls-quality">' +
+      '<label>Quality <span class="fractal-controls-value" data-quality-readout></span></label>' +
+      '<div class="fractal-controls-quality-pills" role="group" aria-label="Render quality">' +
+      '<button type="button" class="fractal-controls-quality-pill" data-quality="auto">Auto</button>' +
+      '<button type="button" class="fractal-controls-quality-pill" data-quality="performance">Performance</button>' +
+      '<button type="button" class="fractal-controls-quality-pill" data-quality="balanced">Balanced</button>' +
+      '<button type="button" class="fractal-controls-quality-pill" data-quality="high">High</button>' +
+      "</div>" +
+      '<p class="fractal-controls-hint" data-quality-hint></p>' +
       "</div>" +
       '<button type="button" class="fractal-remote-open" data-remote-open hidden>Control from your phone</button>' +
       '<div class="fractal-controls-version">' + FRACTAL_VERSION + "</div>" +
@@ -2587,6 +2678,44 @@
     new MutationObserver(syncLiveAudioOnly).observe(audioDeviceRowEl, { attributes: true, attributeFilter: ["hidden"] });
     syncLiveAudioOnly();
 
+    // Quality row (see QUALITY_LADDER for what each mode means). The
+    // active pill follows the saved mode; the readout and hint follow
+    // whatever the render session last resolved, via qualityUiRefresh
+    // (so Auto's own step changes show up here live, not just the mode).
+    const qualityPills = Array.prototype.slice.call(panel.querySelectorAll("[data-quality]"));
+    const qualityReadoutEl = panel.querySelector("[data-quality-readout]");
+    const qualityHintEl = panel.querySelector("[data-quality-hint]");
+    const QUALITY_HINTS = {
+      auto: "Adjusts detail on its own to keep things smooth on this device.",
+      performance: "Fastest, with the least detail. Best for older devices and long sets.",
+      balanced: "A sharper picture at a moderate cost -- a good fit for a phone driving a projector.",
+      high: "Sharpest and most detailed. Heaviest on the GPU and battery.",
+    };
+    function qualityNumber(n) {
+      return String(Math.round(n * 10) / 10);
+    }
+    qualityUiRefresh = function (rung, scale) {
+      qualityPills.forEach((pill) => {
+        const on = pill.dataset.quality === fractalSettings.qualityMode;
+        pill.classList.toggle("is-active", on);
+        pill.setAttribute("aria-pressed", String(on));
+      });
+      qualityHintEl.textContent = QUALITY_HINTS[fractalSettings.qualityMode] || "";
+      if (rung) qualityReadoutEl.textContent = qualityNumber(scale) + "x - " + rung.iter + " iterations";
+    };
+    qualityPills.forEach((pill) => {
+      pill.addEventListener("click", () => {
+        fractalSettings.qualityMode = pill.dataset.quality;
+        saveFractalSettings(fractalSettings);
+        // With the fractal open, resize() re-resolves the rung and calls
+        // qualityUiRefresh itself; closed (or before the first open),
+        // just repaint the pills/hint from the saved mode.
+        if (activeResize) activeResize();
+        else qualityUiRefresh(null);
+      });
+    });
+    qualityUiRefresh(currentQualityRung(), currentQualityRung().scale);
+
     // Phone remote (see the block above buildRemoteModal): the panel's own
     // button + modal, plus the state/command API the relay session talks
     // to. Commands are applied by driving the same controls a person
@@ -2755,7 +2884,15 @@
     });
 
     const canvas = el.querySelector(".image-fractal-canvas");
-    const glOptions = { preserveDrawingBuffer: true };
+    // All three are free: nothing reads this canvas back (so no
+    // preserveDrawingBuffer -- on Safari that forces a copy of the whole
+    // buffer every frame instead of a flip), it's a single full-screen
+    // quad with no geometry edges for antialiasing to act on (but the
+    // default MSAA buffer is still allocated and resolved every frame,
+    // which costs real bandwidth at phone-native resolution), and the
+    // canvas is opaque (alpha: false skips page-compositor blending).
+    // powerPreference only matters on dual-GPU laptops.
+    const glOptions = { antialias: false, alpha: false, powerPreference: "high-performance" };
     const gl = canvas.getContext("webgl", glOptions) || canvas.getContext("experimental-webgl", glOptions);
     let uniforms = null;
     if (gl) {
@@ -2920,7 +3057,12 @@
   // on any wide monitor the real rendered frame extends well past what
   // was ever validated, and the unchecked left/right edges are exactly
   // where an "empty space" complaint on a widescreen would come from.
-  function scoreJuliaView(cx, cy, centerX, centerY, power, zooms, aspectRatio) {
+  // iterCap should be whatever cap the shader is actually rendering with
+  // right now (currentQualityRung().iter): escape times, and so which
+  // regions read as detail vs. empty, depend directly on it -- validating
+  // at 60 while rendering at 120 would judge a different picture than the
+  // one on screen. Defaults to 60 (the old fixed value) if omitted.
+  function scoreJuliaView(cx, cy, centerX, centerY, power, zooms, aspectRatio, iterCap) {
     const GRID = 6;
     const checkZooms = zooms || SCORE_ZOOMS;
     const aspect = aspectRatio || 1;
@@ -2933,7 +3075,7 @@
         for (let j = 0; j < GRID; j++) {
           const px = ((i / (GRID - 1) - 0.5) * aspect) / sampleZoom + centerX;
           const py = (j / (GRID - 1) - 0.5) / sampleZoom + centerY;
-          const it = juliaIterations(px, py, cx, cy, 60, power);
+          const it = juliaIterations(px, py, cx, cy, iterCap || 60, power);
           if (it < minIter) minIter = it;
           if (it > maxIter) maxIter = it;
         }
@@ -3101,13 +3243,17 @@
       // remains as a comfortable safety margin now that a uniformly
       // random angle can actually reach every window -- cost stays
       // negligible either way, this only runs a few times per minute,
-      // not per frame. Low performance mode halves it (and, below,
-      // scores against 3 zooms instead of 7) -- this loop is the single
-      // biggest CPU cost in the whole file, so a slow machine hitting
-      // its worst case (never clearing MIN_SCORE) is exactly what a
-      // choppy cycle-wrap/RANDOMIZE NOW/Fractal-shape-drag looks like.
-      const MAX_ATTEMPTS = fractalSettings.lowPerformanceMode ? 75 : 150;
-      const scoreZooms = fractalSettings.lowPerformanceMode ? SCORE_ZOOMS_LOW : SCORE_ZOOMS;
+      // not per frame. Kept at the cheaper end (half the attempts, and
+      // scoring against 3 zooms instead of 7) at every render quality:
+      // this loop is the single biggest CPU cost in the whole file, so a
+      // slow machine hitting its worst case (never clearing MIN_SCORE)
+      // is exactly what a choppy cycle-wrap/RANDOMIZE NOW/Fractal-shape-
+      // drag looks like, and quality's GPU-side levers (resolution,
+      // iteration cap) don't change that tradeoff. The iteration cap it
+      // scores against does follow quality, though -- see scoreIterCap.
+      const MAX_ATTEMPTS = 75;
+      const scoreZooms = SCORE_ZOOMS_LOW;
+      const scoreIterCap = currentQualityRung().iter;
       const scoringPower = fractalSettings.fractalPower;
       // Widescreen/ultrawide monitors render a much wider horizontal
       // slice of the complex plane than a square viewport would (see
@@ -3185,7 +3331,7 @@
         // orbit of the critical point z=0 after one step), so the zoom
         // target rides along with c instead of staying put.
         const center = { x: c.x * 0.5, y: c.y * 0.5 };
-        const score = scoreJuliaView(c.x, c.y, center.x, center.y, scoringPower, scoreZooms, aspectRatio);
+        const score = scoreJuliaView(c.x, c.y, center.x, center.y, scoringPower, scoreZooms, aspectRatio, scoreIterCap);
         if (!best || score > best.score) best = { c, center, score };
         if (best.score >= MIN_SCORE) break;
       }
@@ -3336,21 +3482,93 @@
     // at its native resolution). A visitor looking at the panel isn't
     // examining canvas sharpness through blurred glass, so this is a
     // real perf win with no noticeable visual cost while it's active.
+    // The rung currently in effect (see QUALITY_LADDER) -- re-resolved at
+    // the top of every resize(), which is also what a mode change from
+    // the panel and Auto's own step changes both call, so this is never
+    // stale for longer than one of those. frame() reads .iter from it.
+    let qualityRung = currentQualityRung();
+    // 1x (CSS pixels) while a panel/tutorial is open regardless of
+    // quality -- see this function's own comment above.
     function resize() {
       const panelOpen = fractalEl.classList.contains("panel-open");
-      // Low performance mode always renders at 1x, same as the
-      // panel-open downscale above and for the same reason -- fewer
-      // pixels for the shader to fill every frame, which on a high-DPR
-      // display (2x = 4x the pixels) is one of the largest single levers
-      // on frame rate available here.
-      const dpr = panelOpen || fractalSettings.lowPerformanceMode ? 1 : Math.min(window.devicePixelRatio || 1, 2);
-      fractalCanvasEl.width = window.innerWidth * dpr;
-      fractalCanvasEl.height = window.innerHeight * dpr;
+      qualityRung = currentQualityRung();
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      // Total-pixel budget (see QUALITY_MAX_PIXELS) -- never below 1x,
+      // which is simply "as many pixels as the CSS viewport itself."
+      const fullScale = Math.max(1, Math.min(qualityRung.scale, Math.sqrt(QUALITY_MAX_PIXELS / Math.max(1, w * h))));
+      const scale = panelOpen ? 1 : fullScale;
+      fractalCanvasEl.width = Math.round(w * scale);
+      fractalCanvasEl.height = Math.round(h * scale);
       gl.viewport(0, 0, fractalCanvasEl.width, fractalCanvasEl.height);
+      // The panel's readout shows fullScale, not the temporary 1x -- it
+      // describes the quality the picture actually gets once the panel
+      // is closed again, which is what the visitor is choosing between.
+      if (qualityUiRefresh) qualityUiRefresh(qualityRung, fullScale);
     }
     resize();
     window.addEventListener("resize", resize);
     activeResize = resize;
+
+    // Auto quality: measures real frame times and walks QUALITY_LADDER
+    // up/down to hold roughly 45-60fps on whatever device this actually
+    // is, rather than guessing from a user-agent. Deliberately
+    // conservative about going UP (needs a few consecutive clean windows,
+    // and backs off exponentially after a step up that immediately had to
+    // be undone) and quick to come back DOWN, since a stutter during a
+    // live set is worse than a slightly softer picture. Idle (no
+    // measuring) while a panel is open -- resolution is forced to 1x
+    // then, so frame times say nothing about the real render.
+    let aqSum = 0;
+    let aqFrames = 0;
+    let aqSettleUntil = 0; // ignore frames until this timestamp (post-open/step-change warmup)
+    let aqFastWindows = 0; // consecutive windows fast enough to try going up
+    let aqUpBlockedUntil = 0;
+    let aqBackoffMs = 15000;
+    let aqLastUpAt = -Infinity;
+    function autoQualityObserve(now, dt, panelOpen) {
+      if (fractalSettings.qualityMode !== "auto" || panelOpen || document.hidden) {
+        aqSum = 0;
+        aqFrames = 0;
+        aqFastWindows = 0;
+        // Re-warm after a panel closes / mode switches back to Auto.
+        aqSettleUntil = Math.max(aqSettleUntil, now + 1200);
+        return;
+      }
+      if (now < aqSettleUntil || dt >= 100) return; // warmup, or a one-off hitch (tab switch, cycle-wrap scoring)
+      aqSum += dt;
+      aqFrames++;
+      if (aqFrames < 45) return;
+      const avg = aqSum / aqFrames;
+      aqSum = 0;
+      aqFrames = 0;
+      const step = qualityRung.step;
+      if (avg > 24 && step > 0) {
+        // Under ~42fps: come down one rung. If we'd only just gone up,
+        // that step up failed -- wait longer before trying it again.
+        if (now - aqLastUpAt < 10000) aqBackoffMs = Math.min(aqBackoffMs * 2, 120000);
+        aqUpBlockedUntil = now + aqBackoffMs;
+        aqFastWindows = 0;
+        autoQualitySetStep(step - 1, now);
+      } else if (avg < 19 && step < QUALITY_LADDER.length - 1 && now >= aqUpBlockedUntil) {
+        // Holding ~55fps+ with room above: needs 3 clean windows (~2.5s)
+        // in a row before trying one rung up.
+        aqFastWindows++;
+        if (aqFastWindows >= 3) {
+          aqFastWindows = 0;
+          aqLastUpAt = now;
+          autoQualitySetStep(step + 1, now);
+        }
+      } else {
+        aqFastWindows = 0;
+      }
+    }
+    function autoQualitySetStep(step, now) {
+      fractalSettings.qualityAutoStep = step;
+      saveFractalSettings(fractalSettings);
+      aqSettleUntil = now + 1500;
+      resize();
+    }
     // Tracked so frame() only calls resize() on an actual open/close
     // transition (a DOM read + GL resize every single frame would waste
     // back the very perf this exists to save), not every frame.
@@ -3378,6 +3596,7 @@
       // Music envelope + dilated clock, computed every frame (cheap).
       const dt = lastFrameNow ? Math.min(100, now - lastFrameNow) : 16;
       lastFrameNow = now;
+      autoQualityObserve(now, dt, panelOpen);
       const rawBass = readLiveAudioBass();
       if (rawBass === null) {
         // No live audio: hold the auto-gain range, let the envelope fall.
@@ -3410,10 +3629,11 @@
       driftT += (dt / 1000) * (0.3 + 1.2 * musicLevel) * driftGain;
       swellLevel += (musicLevel * swellGain - swellLevel) * (1 - Math.exp(-dt / 250));
       let zoom;
-      // Halved under low performance mode -- this is a per-pixel,
-      // per-frame cost across the whole canvas, so it's one of the most
-      // direct levers on frame rate a slower GPU actually has.
-      let maxIter = fractalSettings.lowPerformanceMode ? 60 : 120;
+      // The shader's per-pixel iteration cap -- a per-frame cost across
+      // the whole canvas, and (see QUALITY_LADDER) also what decides
+      // whether slowly-escaping regions resolve into photo detail or are
+      // still wandering, noisily, when the loop gives up.
+      let maxIter = qualityRung.iter;
       {
         // No static "hold" at the ceiling -- that's exactly what froze
         // for ~15s of every 20s cycle (zoom pinned at 7 *and* no
@@ -3453,7 +3673,11 @@
         zoom = 1 + Math.pow(morphPhase, 1.5) * (fractalSettings.zoomDepth - 1);
 
         if (fractalSettings.growthEnabled) {
-          maxIter = fractalSettings.lowPerformanceMode ? 50 + musicLevel * 25 : 100 + musicLevel * 50;
+          // Same shape as before at either end of the old range (50..75
+          // around a 60 cap, 100..150 around 120): about 83% of the cap
+          // at silence up to about 125% at full music. The shader's loop
+          // bound is 150, so that's the ceiling.
+          maxIter = Math.min(150, qualityRung.iter * 0.83 + musicLevel * qualityRung.iter * 0.42);
         }
       }
       // Escape-dive zoom boost, applied every frame (not just on the
@@ -3603,7 +3827,7 @@
       if (!panelOpen) {
         if (now - lastFlatCheck > 500) {
           lastFlatCheck = now;
-          const liveScore = scoreJuliaView(cCurrent.x, cCurrent.y, centerCurrent.x, centerCurrent.y, power, [zoom], window.innerWidth / window.innerHeight);
+          const liveScore = scoreJuliaView(cCurrent.x, cCurrent.y, centerCurrent.x, centerCurrent.y, power, [zoom], window.innerWidth / window.innerHeight, qualityRung.iter);
           if (liveScore < FLAT_SCORE_THRESHOLD) {
             if (flatSince === null) flatSince = now;
             if (windDownStart !== null) {
